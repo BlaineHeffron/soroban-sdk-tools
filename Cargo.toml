@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "soroban-sdk-tools",
+    "soroban-sdk-tools-macro",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.74"
+repository = "https://github.com/yourusername/soroban-sdk-tools"
+
+[workspace.dependencies]
+soroban-sdk = "23.1.0"
+soroban-sdk-tools = { path = "soroban-sdk-tools" }
+soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro" }
+
+# Macro dependencies
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+darling = "0.20"

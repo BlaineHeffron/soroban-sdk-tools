@@ -1,0 +1,32 @@
+//! # soroban-sdk-tools
+//!
+//! Enhanced tools for Soroban smart contract development including:
+//! - Advanced storage management with automatic key optimization
+//! - Composable error handling with the #[scerr] macro
+//! - Improved authorization testing utilities
+
+#![no_std]
+
+// Re-export soroban-sdk types for convenience
+pub use soroban_sdk;
+
+// Re-export procedural macros
+pub use soroban_sdk_tools_macro::{contractstorage, scerr};
+
+// Public modules
+pub mod error;
+pub mod key;
+pub mod storage;
+
+#[cfg(any(test, feature = "testutils"))]
+pub mod auth;
+
+// Re-export commonly used types
+pub use error::ContractError;
+pub use key::StorageKey;
+pub use storage::{
+    InstanceItem, InstanceMap, PersistentItem, PersistentMap, TemporaryItem, TemporaryMap,
+};
+
+#[cfg(any(test, feature = "testutils"))]
+pub use auth::ContractClientExt;

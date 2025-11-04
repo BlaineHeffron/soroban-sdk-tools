@@ -1,0 +1,6 @@
+target/
+.soroban/
+.env
+test_snapshots/
+reference/
+prompts/
