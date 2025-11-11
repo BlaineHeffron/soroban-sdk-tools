@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use crate::util::{get_type_name, is_storage_item_type, is_storage_map_type, is_storage_type};
+use darling::FromMeta;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use quote::quote;
 use syn::{
@@ -11,6 +12,7 @@ use syn::{
 };
 
 /// Information about a field in the storage struct
+#[derive(Debug)]
 pub struct FieldInfo {
     pub name: Ident,
     pub ty: Type,
@@ -20,6 +22,19 @@ pub struct FieldInfo {
     pub span: proc_macro2::Span,
 }
 
+/// Finalized field with assigned short key
+/// Tuple of (name, type, visibility, assigned_key, is_symbolic)
+pub type FinalizedField = (Ident, Type, Visibility, String, bool);
+
+/// Arguments parsed from #[contractstorage(...)]
+#[derive(Debug, Default, FromMeta)]
+pub struct StorageArgs {
+    #[darling(default)]
+    pub auto_shorten: bool,
+    #[darling(default)]
+    pub symbolic: bool,
+}
+
 /// Generate a key wrapper struct for a map type
 pub fn generate_map_key_wrapper(
     wrapper_name: &Ident,
@@ -27,7 +42,7 @@ pub fn generate_map_key_wrapper(
     prefix_lit: &Lit,
 ) -> proc_macro2::TokenStream {
     quote! {
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub struct #wrapper_name(#key_ty);
         impl From<#key_ty> for #wrapper_name {
             fn from(k: #key_ty) -> Self { Self(k) }
@@ -50,7 +65,7 @@ pub fn generate_item_key_wrapper(
     prefix_lit: &Lit,
 ) -> proc_macro2::TokenStream {
     quote! {
-        #[derive(Clone, Default)]
+        #[derive(Clone, Default, Debug)]
         pub struct #wrapper_name;
         impl ::soroban_sdk_tools::key::StorageKey for #wrapper_name {
             fn to_key(&self, env: &::soroban_sdk::Env) -> ::soroban_sdk::Val {
@@ -122,17 +137,8 @@ pub fn validate_storage_type(ty: &Type) -> Result<()> {
     Ok(())
 }
 
-/// Expand a struct with storage keys
-///
-/// This function is the core transformation logic used by both single-struct
-/// and module-level processing. It generates storage wrappers and key management
-/// code for a struct annotated with #[contractstorage].
-pub fn expand_struct_with_keys(
-    mut item_struct: ItemStruct,
-    auto_shorten: bool,
-    struct_symbolic: bool,
-    reserved_short_names: &mut HashSet<String>,
-) -> Result<Vec<Item>> {
+/// Parse fields from the struct, stripping attributes and collecting info
+pub fn parse_fields(item_struct: &mut ItemStruct) -> Result<Vec<FieldInfo>> {
     // Strip the #[contractstorage(...)] marker from the struct
     item_struct
         .attrs
@@ -210,6 +216,17 @@ pub fn expand_struct_with_keys(
         return Err(combine_errors(errors));
     }
 
+    Ok(field_infos)
+}
+
+/// Assign short keys to fields, handling auto-shortening and reservations
+pub fn assign_short_keys(
+    field_infos: Vec<FieldInfo>,
+    auto_shorten: bool,
+    struct_symbolic: bool,
+    reserved_short_names: &mut HashSet<String>,
+) -> Result<Vec<FinalizedField>> {
+    let mut errors = Vec::new();
     let mut reserved_camel_names: HashSet<String> = HashSet::new();
 
     // Reserve explicit short keys and check duplicates (global via `reserved_short_names`)
@@ -247,28 +264,27 @@ pub fn expand_struct_with_keys(
         let base_name = field.name.to_string();
         if field.short_key.is_none() {
             if auto_shorten {
-                // Pre-compute camel case version once
                 let camel_base = base_name.to_upper_camel_case();
                 let mut len: usize = 1;
                 let mut found = false;
                 let mut short = String::new();
+                const MAX_SUFFIX: usize = 99;
 
-                // Progressively lengthen prefix until unique, falling back to appending numbers if full name conflicts.`
                 'find: loop {
-                    let candidate = &camel_base[0..len.min(camel_base.len())];
+                    let candidate: String = camel_base.chars().take(len).collect();
 
-                    if !reserved_short_names.contains(candidate)
-                        && !reserved_camel_names.contains(candidate)
+                    if !reserved_short_names.contains(&candidate)
+                        && !reserved_camel_names.contains(&candidate)
                     {
-                        short = candidate.to_string();
+                        short = candidate;
                         found = true;
                         break;
                     }
+
                     len += 1;
-                    if len > camel_base.len() {
+                    if len > camel_base.chars().count() {
                         // Full name conflicts, append counter
-                        let mut i = 0;
-                        loop {
+                        for i in 0..=MAX_SUFFIX {
                             let cand_str = format!("{}{}", camel_base, i);
                             if !reserved_short_names.contains(&cand_str)
                                 && !reserved_camel_names.contains(&cand_str)
@@ -277,12 +293,12 @@ pub fn expand_struct_with_keys(
                                 found = true;
                                 break 'find;
                             }
-                            i += 1;
-                            if i > 99 {
-                                errors.push(Error::new(field.span, "Cannot find unique short key"));
-                                break 'find;
-                            }
                         }
+                        errors.push(Error::new(
+                            field.span,
+                            "Cannot find unique short key after exhausting candidates",
+                        ));
+                        break 'find;
                     }
                 }
 
@@ -318,11 +334,15 @@ pub fn expand_struct_with_keys(
         let key = field.short_key.as_ref().unwrap().clone();
         let field_is_symbolic = field.symbolic || struct_symbolic || !auto_shorten;
 
-        if field_is_symbolic && key.len() > 32 {
-            errors.push(Error::new(
-                field.span,
-                "Symbolic key too long (>32 characters) for Symbol",
-            ));
+        // Validate the symbol string used.
+        if field_is_symbolic {
+            let sym_key = key.to_upper_camel_case();
+            if sym_key.len() > 32 {
+                errors.push(Error::new(
+                    field.span,
+                    "Symbolic key too long (>32 characters) when converted to Symbol",
+                ));
+            }
         }
 
         finalized_fields.push((field.name, field.ty, field.vis, key, field_is_symbolic));
@@ -333,6 +353,15 @@ pub fn expand_struct_with_keys(
         return Err(combine_errors(errors));
     }
 
+    Ok(finalized_fields)
+}
+
+/// Generate the output items from finalized fields
+pub fn generate_items(
+    item_struct: &ItemStruct,
+    finalized_fields: &[FinalizedField],
+    auto_shorten: bool,
+) -> Result<Vec<Item>> {
     let struct_name = &item_struct.ident;
     let generics = &item_struct.generics;
     let module_name = syn::Ident::new(
@@ -349,15 +378,29 @@ pub fn expand_struct_with_keys(
     let symbolic_fields: Vec<_> = finalized_fields
         .iter()
         .filter(|(_, _, _, _, is_sym)| *is_sym)
+        .cloned()
         .collect();
 
     let has_symbolic = !symbolic_fields.is_empty() || !auto_shorten;
 
+    let mut errors = vec![];
+
     if has_symbolic {
         let mut per_field_items: Vec<proc_macro2::TokenStream> = vec![];
 
-        for &(name, ty, _, short, _) in &symbolic_fields {
+        for (name, ty, _, short, _) in &symbolic_fields {
             let sym_key = short.to_upper_camel_case();
+            // Validate wrapper ident to avoid panics
+            if syn::parse_str::<Ident>(&sym_key).is_err() {
+                errors.push(Error::new(
+                    name.span(),
+                    format!(
+                        "Derived key wrapper name '{}' is not a valid Rust identifier",
+                        sym_key
+                    ),
+                ));
+                continue;
+            }
             let prefix_lit = Lit::Str(LitStr::new(&sym_key, name.span()));
             let wrapper_name = syn::Ident::new(&sym_key, name.span());
 
@@ -411,7 +454,18 @@ pub fn expand_struct_with_keys(
     for (name, ty, vis, short, is_sym) in finalized_fields.iter() {
         let field_name = name;
         let prefix_lit = Lit::Str(LitStr::new(short, name.span()));
-        let case_name = syn::Ident::new(&short.to_upper_camel_case(), name.span());
+        let case_name_str = short.to_upper_camel_case();
+        if syn::parse_str::<Ident>(&case_name_str).is_err() {
+            errors.push(Error::new(
+                name.span(),
+                format!(
+                    "Derived key wrapper name '{}' is not a valid Rust identifier",
+                    case_name_str
+                ),
+            ));
+            continue;
+        }
+        let case_name = syn::Ident::new(&case_name_str, name.span());
         let wrapper_name = case_name;
 
         if *is_sym {
@@ -514,4 +568,237 @@ pub fn expand_struct_with_keys(
     items.push(Item::Impl(impl_default));
 
     Ok(items)
+}
+
+/// Expand a struct with storage keys
+///
+/// This function is the core transformation logic used by both single-struct
+/// and module-level processing. It generates storage wrappers and key management
+/// code for a struct annotated with #[contractstorage].
+pub fn expand_struct_with_keys(
+    mut item_struct: ItemStruct,
+    auto_shorten: bool,
+    struct_symbolic: bool,
+    reserved_short_names: &mut HashSet<String>,
+) -> Result<Vec<Item>> {
+    let field_infos = parse_fields(&mut item_struct)?;
+    let finalized_fields = assign_short_keys(
+        field_infos,
+        auto_shorten,
+        struct_symbolic,
+        reserved_short_names,
+    )?;
+    generate_items(&item_struct, &finalized_fields, auto_shorten)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use syn::parse_quote;
+
+    #[test]
+    fn test_parse_fields_success() {
+        let mut item_struct: ItemStruct = parse_quote! {
+            #[contractstorage]
+            pub struct TestStruct {
+                pub field1: PersistentItem<u64>,
+                #[short_key = "key2"]
+                #[symbolic]
+                field2: PersistentMap<Address, u64>,
+            }
+        };
+
+        let fields = parse_fields(&mut item_struct).unwrap();
+
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name.to_string(), "field1");
+        assert!(fields[0].short_key.is_none());
+        assert!(!fields[0].symbolic);
+
+        assert_eq!(fields[1].name.to_string(), "field2");
+        assert_eq!(fields[1].short_key, Some("key2".to_string()));
+        assert!(fields[1].symbolic);
+
+        // Check attributes are stripped
+        assert!(item_struct.attrs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_fields_unnamed_fields() {
+        let mut item_struct: ItemStruct = parse_quote! {
+            #[contractstorage]
+            pub struct TestStruct(u64);
+        };
+
+        let err = parse_fields(&mut item_struct).unwrap_err();
+        assert!(err.to_string().contains("requires named fields"));
+    }
+
+    #[test]
+    fn test_parse_fields_invalid_type() {
+        let mut item_struct: ItemStruct = parse_quote! {
+            #[contractstorage]
+            pub struct TestStruct {
+                invalid: u64,
+            }
+        };
+
+        let err = parse_fields(&mut item_struct).unwrap_err();
+        assert!(err.to_string().contains("not a valid storage type"));
+    }
+
+    #[test]
+    fn test_assign_short_keys_auto_shorten() {
+        let field_infos = vec![
+            FieldInfo {
+                name: parse_quote!(balance),
+                ty: parse_quote!(PersistentMap<Address, u64>),
+                vis: Visibility::Public(parse_quote!(pub)),
+                short_key: None,
+                symbolic: false,
+                span: proc_macro2::Span::call_site(),
+            },
+            FieldInfo {
+                name: parse_quote!(total),
+                ty: parse_quote!(PersistentItem<u64>),
+                vis: Visibility::Public(parse_quote!(pub)),
+                short_key: None,
+                symbolic: false,
+                span: proc_macro2::Span::call_site(),
+            },
+        ];
+
+        let mut reserved = HashSet::new();
+        let finalized = assign_short_keys(field_infos, true, false, &mut reserved).unwrap();
+
+        assert_eq!(finalized.len(), 2);
+        assert_eq!(finalized[0].3, "B"); // Shortened from "balance"
+        assert_eq!(finalized[1].3, "T"); // Shortened from "total"
+        assert!(!finalized[0].4); // not symbolic
+        assert!(!finalized[1].4);
+    }
+
+    #[test]
+    fn test_assign_short_keys_explicit() {
+        let field_infos = vec![FieldInfo {
+            name: parse_quote!(balance),
+            ty: parse_quote!(PersistentMap<Address, u64>),
+            vis: Visibility::Public(parse_quote!(pub)),
+            short_key: Some("bal".to_string()),
+            symbolic: false,
+            span: proc_macro2::Span::call_site(),
+        }];
+
+        let mut reserved = HashSet::new();
+        let finalized = assign_short_keys(field_infos, false, false, &mut reserved).unwrap();
+
+        assert_eq!(finalized[0].3, "bal");
+    }
+
+    #[test]
+    fn test_assign_short_keys_duplicate_explicit() {
+        let field_infos = vec![
+            FieldInfo {
+                name: parse_quote!(field1),
+                ty: parse_quote!(PersistentItem<u64>),
+                vis: Visibility::Public(parse_quote!(pub)),
+                short_key: Some("key".to_string()),
+                symbolic: false,
+                span: proc_macro2::Span::call_site(),
+            },
+            FieldInfo {
+                name: parse_quote!(field2),
+                ty: parse_quote!(PersistentItem<u64>),
+                vis: Visibility::Public(parse_quote!(pub)),
+                short_key: Some("key".to_string()),
+                symbolic: false,
+                span: proc_macro2::Span::call_site(),
+            },
+        ];
+
+        let mut reserved = HashSet::new();
+        let err = assign_short_keys(field_infos, false, false, &mut reserved).unwrap_err();
+        assert!(err.to_string().contains("Duplicate explicit short key"));
+    }
+
+    #[test]
+    fn test_assign_short_keys_symbolic_too_long() {
+        let field_infos = vec![FieldInfo {
+            name: parse_quote!(long_field_name_that_is_too_long_for_symbol),
+            ty: parse_quote!(PersistentItem<u64>),
+            vis: Visibility::Public(parse_quote!(pub)),
+            short_key: None,
+            symbolic: true,
+            span: proc_macro2::Span::call_site(),
+        }];
+
+        let mut reserved = HashSet::new();
+        let err = assign_short_keys(field_infos, false, true, &mut reserved).unwrap_err();
+        assert!(err.to_string().contains("Symbolic key too long"));
+    }
+
+    #[test]
+    fn test_generate_items_basic() {
+        let item_struct: ItemStruct = parse_quote! {
+            pub struct TestStruct {
+                pub field: PersistentItem<u64>,
+            }
+        };
+
+        let finalized = vec![(
+            parse_quote!(field),
+            parse_quote!(PersistentItem<u64>),
+            Visibility::Public(parse_quote!(pub)),
+            "F".to_string(),
+            false,
+        )];
+
+        let items = generate_items(&item_struct, &finalized, true).unwrap();
+
+        assert_eq!(items.len(), 3); // struct, impl new, impl default
+    }
+
+    #[test]
+    fn test_generate_items_with_symbolic() {
+        let item_struct: ItemStruct = parse_quote! {
+            pub struct TestStruct {
+                pub field: PersistentMap<Address, u64>,
+            }
+        };
+
+        let finalized = vec![(
+            parse_quote!(field),
+            parse_quote!(PersistentMap<Address, u64>),
+            Visibility::Public(parse_quote!(pub)),
+            "F".to_string(),
+            true,
+        )];
+
+        let items = generate_items(&item_struct, &finalized, false).unwrap();
+
+        // Should generate keys module
+        assert_eq!(items.len(), 4); // struct, module, impl new, impl default
+    }
+
+    #[test]
+    fn test_generate_items_invalid_map() {
+        let item_struct: ItemStruct = parse_quote! {
+            pub struct TestStruct {
+                pub field: InvalidMap<Address, u64>,
+            }
+        };
+
+        let finalized = vec![(
+            parse_quote!(field),
+            parse_quote!(InvalidMap<Address, u64>),
+            Visibility::Public(parse_quote!(pub)),
+            "F".to_string(),
+            true,
+        )];
+
+        let err = generate_items(&item_struct, &finalized, false).unwrap_err();
+        println!("{}", err.to_string());
+        assert!(err.to_string().contains("Unsupported storage type"));
+    }
 }

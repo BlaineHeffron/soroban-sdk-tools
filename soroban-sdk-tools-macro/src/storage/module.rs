@@ -5,14 +5,12 @@
 
 use std::collections::HashSet;
 
+use darling::{ast::NestedMeta, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parse_macro_input, punctuated::Punctuated, Error, Expr, Item, ItemMod, ItemStruct, Lit, Meta,
-    MetaNameValue, Token,
-};
+use syn::{parse_macro_input, punctuated::Punctuated, Error, Item, ItemMod, ItemStruct, Token};
 
-use super::common::expand_struct_with_keys;
+use super::common::{expand_struct_with_keys, StorageArgs};
 
 /// Implementation of #[contractstorage_module] attribute macro
 ///
@@ -67,8 +65,13 @@ pub fn contractstorage_module_impl(_attr: TokenStream, item: TokenStream) -> Tok
     let mut reserved_short_names: HashSet<String> = HashSet::new();
     let mut rebuilt: Vec<Vec<Item>> = vec![];
 
-    for (s, auto, sym) in structs.into_iter() {
-        match expand_struct_with_keys(s, auto, sym, &mut reserved_short_names) {
+    for (s, args) in structs.into_iter() {
+        match expand_struct_with_keys(
+            s,
+            args.auto_shorten,
+            args.symbolic,
+            &mut reserved_short_names,
+        ) {
             Ok(items) => rebuilt.push(items),
             Err(err) => return err.to_compile_error().into(),
         }
@@ -82,13 +85,13 @@ pub fn contractstorage_module_impl(_attr: TokenStream, item: TokenStream) -> Tok
 }
 
 /// Collect all structs with #[contractstorage] annotations from the module
-fn collect_contractstorage_structs(items: &[Item]) -> Vec<(ItemStruct, bool, bool)> {
-    let mut structs: Vec<(ItemStruct, bool, bool)> = vec![];
+fn collect_contractstorage_structs(items: &[Item]) -> Vec<(ItemStruct, StorageArgs)> {
+    let mut structs: Vec<(ItemStruct, StorageArgs)> = vec![];
 
     for it in items.iter() {
         if let Item::Struct(s) = it {
-            if let Some((auto, sym)) = parse_contractstorage_attrs(&s.attrs) {
-                structs.push((s.clone(), auto, sym));
+            if let Some(args) = parse_contractstorage_attrs(&s.attrs) {
+                structs.push((s.clone(), args));
             }
         }
     }
@@ -97,63 +100,23 @@ fn collect_contractstorage_structs(items: &[Item]) -> Vec<(ItemStruct, bool, boo
 }
 
 /// Parse #[contractstorage] attributes to extract settings
-fn parse_contractstorage_attrs(attrs: &[syn::Attribute]) -> Option<(bool, bool)> {
-    let mut auto = false;
-    let mut sym = false;
+fn parse_contractstorage_attrs(attrs: &[syn::Attribute]) -> Option<StorageArgs> {
+    let mut nested = vec![];
     let mut has_marker = false;
 
     for attr in attrs {
         if attr.path().is_ident("contractstorage") {
             has_marker = true;
-
-            match &attr.meta {
-                Meta::Path(_) => {
-                    // No arguments, use defaults
-                }
-                Meta::List(meta_list) => {
-                    // Parse arguments within the list
-                    if let Ok(args) =
-                        meta_list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-                    {
-                        for arg in args {
-                            match arg {
-                                Meta::NameValue(MetaNameValue { path, value, .. }) => {
-                                    if path.is_ident("auto_shorten") {
-                                        if let Expr::Lit(expr_lit) = value {
-                                            if let Lit::Bool(b) = expr_lit.lit {
-                                                auto = b.value;
-                                            }
-                                        }
-                                    } else if path.is_ident("symbolic") {
-                                        if let Expr::Lit(expr_lit) = value {
-                                            if let Lit::Bool(b) = expr_lit.lit {
-                                                sym = b.value;
-                                            }
-                                        }
-                                    }
-                                }
-                                Meta::Path(path) => {
-                                    // Handle flag-style attributes
-                                    if path.is_ident("auto_shorten") {
-                                        auto = true;
-                                    } else if path.is_ident("symbolic") {
-                                        sym = true;
-                                    }
-                                }
-                                _ => {} // Ignore other meta types
-                            }
-                        }
-                    }
-                }
-                Meta::NameValue(_) => {
-                    // Unexpected format, skip
-                }
+            if let Ok(metas) =
+                attr.parse_args_with(Punctuated::<NestedMeta, Token![,]>::parse_terminated)
+            {
+                nested.extend(metas);
             }
         }
     }
 
     if has_marker {
-        Some((auto, sym))
+        StorageArgs::from_list(&nested).ok()
     } else {
         None
     }
@@ -181,4 +144,52 @@ fn rebuild_module_items(content: &mut Vec<Item>, rebuilt: Vec<Vec<Item>>) -> Vec
     }
 
     new_items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn test_parse_contractstorage_attrs_flags() {
+        let attrs: Vec<syn::Attribute> = parse_quote! {
+            #[contractstorage(auto_shorten, symbolic)]
+        };
+
+        let args = parse_contractstorage_attrs(&attrs).unwrap();
+        assert!(args.auto_shorten);
+        assert!(args.symbolic);
+    }
+
+    #[test]
+    fn test_parse_contractstorage_attrs_name_value() {
+        let attrs: Vec<syn::Attribute> = parse_quote! {
+            #[contractstorage(auto_shorten = true, symbolic = false)]
+        };
+
+        let args = parse_contractstorage_attrs(&attrs).unwrap();
+        assert!(args.auto_shorten);
+        assert!(!args.symbolic);
+    }
+
+    #[test]
+    fn test_parse_contractstorage_attrs_no_args() {
+        let attrs: Vec<syn::Attribute> = parse_quote! {
+            #[contractstorage]
+        };
+
+        let args = parse_contractstorage_attrs(&attrs).unwrap();
+        assert!(!args.auto_shorten);
+        assert!(!args.symbolic);
+    }
+
+    #[test]
+    fn test_parse_contractstorage_attrs_none() {
+        let attrs: Vec<syn::Attribute> = parse_quote! {
+            #[other]
+        };
+
+        assert!(parse_contractstorage_attrs(&attrs).is_none());
+    }
 }
