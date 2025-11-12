@@ -21,8 +21,7 @@ pub trait StorageKey {
     /// This should avoid hashing, as the caller will hash the full composite.
     fn to_composite_bytes(&self, env: &Env) -> Bytes {
         // Default: serialize the Val to XDR
-        let v = self.to_key(env);
-        v.to_xdr(env)
+        self.to_key(env).to_xdr(env)
     }
 }
 

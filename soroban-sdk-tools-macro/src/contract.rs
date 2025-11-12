@@ -7,6 +7,7 @@
 // This will be adapted from loam-sdk-macro/contract.rs
 
 /// Placeholder for contract macro utilities
+#[allow(dead_code)]
 pub fn process_contract_attribute() {
     unimplemented!("Contract attribute processing")
 }

@@ -15,7 +15,7 @@ pub fn scerr_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // TODO: Generate FromContractError implementations
     // TODO: Generate Display implementation
 
-    let name = &input.ident;
+    let _name = &input.ident;
 
     // Placeholder implementation
     let expanded = quote! {

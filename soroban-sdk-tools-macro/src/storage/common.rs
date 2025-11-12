@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::util::{get_type_name, is_storage_item_type, is_storage_map_type, is_storage_type};
+use crate::util::TypeExt;
 use darling::FromMeta;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use quote::quote;
@@ -75,66 +75,15 @@ pub fn generate_item_key_wrapper(
     }
 }
 
-/// Extract key and value types from a map type
-pub fn extract_map_generics(ty: &Type) -> Result<(Type, Type, Ident)> {
-    if let Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            let ident = segment.ident.clone();
-            if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                if args.args.len() == 2 {
-                    if let (syn::GenericArgument::Type(k), syn::GenericArgument::Type(v)) =
-                        (&args.args[0], &args.args[1])
-                    {
-                        return Ok((k.clone(), v.clone(), ident));
-                    }
-                } else if args.args.len() == 3 {
-                    // For when W is present
-                    if let (
-                        syn::GenericArgument::Type(k),
-                        syn::GenericArgument::Type(v),
-                        syn::GenericArgument::Type(_w),
-                    ) = (&args.args[0], &args.args[1], &args.args[2])
-                    {
-                        return Ok((k.clone(), v.clone(), ident));
-                    }
-                }
-            }
-        }
-    }
-    Err(Error::new_spanned(
-        ty,
-        "Invalid map type: expected a type like PersistentMap<K, V>",
-    ))
-}
-
 /// Combine multiple syn::Error instances into a single error
 pub fn combine_errors(errors: Vec<Error>) -> Error {
-    let mut iter = errors.into_iter();
-    let mut combined = iter.next().expect("combine_errors called with empty vec");
-    for err in iter {
-        combined.combine(err);
-    }
-    combined
-}
-
-/// Validate that a type is one of the supported storage types
-pub fn validate_storage_type(ty: &Type) -> Result<()> {
-    if !is_storage_type(ty) {
-        let type_name = get_type_name(ty).unwrap_or_else(|| "<unknown>".to_string());
-        return Err(Error::new_spanned(
-            ty,
-            format!(
-                "Field type '{}' is not a valid storage type.\n\
-                 \n\
-                 Supported types:\n\
-                 - Map types: PersistentMap<K, V>, InstanceMap<K, V>, TemporaryMap<K, V>\n\
-                 - Item types: PersistentItem<V>, InstanceItem<V>, TemporaryItem<V>.",
-                type_name
-            ),
-        ));
-    }
-
-    Ok(())
+    errors
+        .into_iter()
+        .reduce(|mut a, b| {
+            a.combine(b);
+            a
+        })
+        .expect("At least one error expected")
 }
 
 /// Parse fields from the struct, stripping attributes and collecting info
@@ -187,7 +136,7 @@ pub fn parse_fields(item_struct: &mut ItemStruct) -> Result<Vec<FieldInfo>> {
             let vis = field.vis.clone();
 
             // Validate that the type is a supported storage type
-            if let Err(e) = validate_storage_type(&ty) {
+            if let Err(e) = ty.validate_storage_type() {
                 errors.push(e);
                 continue;
             }
@@ -404,8 +353,8 @@ pub fn generate_items(
             let prefix_lit = Lit::Str(LitStr::new(&sym_key, name.span()));
             let wrapper_name = syn::Ident::new(&sym_key, name.span());
 
-            if is_storage_map_type(ty) {
-                let (key_ty, _, _) = match extract_map_generics(ty) {
+            if ty.is_storage_map_type() {
+                let (key_ty, _, _) = match ty.extract_map_generics() {
                     Ok(tuple) => tuple,
                     Err(e) => {
                         errors.push(e);
@@ -418,19 +367,20 @@ pub fn generate_items(
                     &key_ty,
                     &prefix_lit,
                 ));
-            } else if is_storage_item_type(ty) {
+            } else if ty.is_storage_item_type() {
                 per_field_items.push(generate_item_key_wrapper(&wrapper_name, &prefix_lit));
             } else {
-                let type_name = get_type_name(ty).unwrap_or_else(|| "<unknown>".to_string());
+                let type_name = ty
+                    .get_type_name()
+                    .unwrap_or_else(|| "<unknown>".to_string());
                 errors.push(Error::new_spanned(
                     ty,
                     format!(
-                        "Unsupported storage type '{}' for symbolic key.\n\
+                        "Unsupported storage type '{type_name}' for symbolic key.\n\
                          \n\
                          Supported types:\n\
                          - Map types: PersistentMap<K, V>, InstanceMap<K, V>, TemporaryMap<K, V>\n\
                          - Item types: PersistentItem<V>, InstanceItem<V>, TemporaryItem<V>.",
-                        type_name
                     ),
                 ));
             }
@@ -440,14 +390,13 @@ pub fn generate_items(
         if !errors.is_empty() {
             return Err(combine_errors(errors));
         }
-        let module: Item = syn::parse2(quote! {
+        additional_items.push(syn::parse2(quote! {
                 mod #module_name {
                     use super::*;
                     use ::soroban_sdk::IntoVal;
                     #(#per_field_items)*
             }
-        })?;
-        additional_items.push(module);
+        })?)
     }
 
     // Now generate field decls and inits for all fields
@@ -459,8 +408,7 @@ pub fn generate_items(
             errors.push(Error::new(
                 name.span(),
                 format!(
-                    "Derived key wrapper name '{}' is not a valid Rust identifier",
-                    case_name_str
+                    "Derived key wrapper name '{case_name_str}' is not a valid Rust identifier",
                 ),
             ));
             continue;
@@ -470,8 +418,8 @@ pub fn generate_items(
 
         if *is_sym {
             // Symbolic (enum mode)
-            if is_storage_map_type(ty) {
-                let (key_ty, val_ty, map_ident) = match extract_map_generics(ty) {
+            if ty.is_storage_map_type() {
+                let (key_ty, val_ty, map_ident) = match ty.extract_map_generics() {
                     Ok(tuple) => tuple,
                     Err(e) => {
                         errors.push(e);
@@ -508,8 +456,8 @@ pub fn generate_items(
         }
 
         if auto_shorten {
-            let return_ty = if *is_sym && is_storage_map_type(ty) {
-                let (key_ty, val_ty, map_ident) = match extract_map_generics(ty) {
+            let return_ty = if *is_sym && ty.is_storage_map_type() {
+                let (key_ty, val_ty, map_ident) = match ty.extract_map_generics() {
                     Ok(tuple) => tuple,
                     Err(e) => {
                         errors.push(e);
@@ -533,7 +481,7 @@ pub fn generate_items(
     let needs_rebuilt = has_symbolic
         || finalized_fields
             .iter()
-            .any(|(_, ty, _, _, is_sym)| *is_sym && is_storage_map_type(ty));
+            .any(|(_, ty, _, _, is_sym)| *is_sym && ty.is_storage_map_type());
     let struct_item = if needs_rebuilt {
         syn::parse2::<Item>(quote! {
             #[derive(Clone)]
