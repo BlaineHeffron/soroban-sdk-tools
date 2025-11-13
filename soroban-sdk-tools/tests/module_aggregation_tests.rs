@@ -6,7 +6,7 @@ use soroban_sdk::{
     TryFromVal, Val,
 };
 use soroban_sdk_tools::{PersistentItem, PersistentMap};
-use soroban_sdk_tools_macro::{contractstorage_module};
+use soroban_sdk_tools_macro::contractstorage_module;
 
 #[contractstorage_module]
 mod aggregated {
