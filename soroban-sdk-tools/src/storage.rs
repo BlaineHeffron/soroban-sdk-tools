@@ -19,7 +19,6 @@ pub type InstanceMap<K, V, W = K> = StorageMap<Instance, K, V, W>;
 /// A temporary key-value map
 pub type TemporaryMap<K, V, W = K> = StorageMap<Temporary, K, V, W>;
 
-
 /// A single persistent value
 pub type PersistentItem<V> = StorageItem<Persistent, V>;
 /// A single instance value

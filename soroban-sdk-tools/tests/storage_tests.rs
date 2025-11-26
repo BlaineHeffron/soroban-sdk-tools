@@ -107,10 +107,7 @@ mod token {
         pub fn transfer(env: Env, from: &Address, to: &Address, amount: u64) -> Result<(), Error> {
             let storage = Storage::new(&env);
 
-            let from_balance = storage
-                .balances
-                .get(from)
-                .ok_or(Error::NoSenderBalance)?;
+            let from_balance = storage.balances.get(from).ok_or(Error::NoSenderBalance)?;
 
             if from_balance < amount {
                 return Err(Error::InsufficientBalance);

@@ -28,8 +28,8 @@ pub fn contractstorage(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Module-level aggregator:
-/// #[contractstorage_module]
-/// mod my_contract { /* structs with #[contractstorage] */ }
+/// #[`contractstorage_module`]
+/// mod `my_contract` { /* structs with #[contractstorage] */ }
 #[proc_macro_attribute]
 pub fn contractstorage_module(attr: TokenStream, item: TokenStream) -> TokenStream {
     storage::contractstorage_module_impl(attr, item)

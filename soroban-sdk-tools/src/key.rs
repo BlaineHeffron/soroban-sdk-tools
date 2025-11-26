@@ -134,7 +134,7 @@ impl StorageKey for BytesN<32> {
 /// ```ignore
 /// let key = hash_key(&env, &prefix_bytes, Some(&addr_bytes));
 /// ```
-#[must_use] 
+#[must_use]
 pub fn hash_key(env: &Env, prefix: &Bytes, key_data: Option<&Bytes>) -> BytesN<32> {
     let mut key_bytes = prefix.clone();
     if let Some(data) = key_data {

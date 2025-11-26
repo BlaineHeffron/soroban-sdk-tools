@@ -18,7 +18,7 @@ use super::common::{expand_struct_with_keys, StorageArgs};
 /// a fully-functional storage structure with automatic key generation.
 ///
 /// # Arguments
-/// * `attr` - Macro attributes (auto_shorten, symbolic)
+/// * `attr` - Macro attributes (`auto_shorten`, symbolic)
 /// * `item` - The struct to process
 ///
 /// # Example
@@ -32,7 +32,9 @@ use super::common::{expand_struct_with_keys, StorageArgs};
 pub fn contractstorage_attr_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_struct = parse_macro_input!(item as ItemStruct);
 
-    let args = if !attr.is_empty() {
+    let args = if attr.is_empty() {
+        StorageArgs::default()
+    } else {
         let attr_stream = proc_macro2::TokenStream::from(attr);
         match syn::parse::Parser::parse2(
             |input: syn::parse::ParseStream| {
@@ -46,8 +48,6 @@ pub fn contractstorage_attr_impl(attr: TokenStream, item: TokenStream) -> TokenS
             },
             Err(err) => return err.to_compile_error().into(),
         }
-    } else {
-        StorageArgs::default()
     };
 
     // Process single struct (no cross-struct aggregation here)

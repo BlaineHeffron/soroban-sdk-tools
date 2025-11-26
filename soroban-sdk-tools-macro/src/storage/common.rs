@@ -81,7 +81,7 @@ pub fn generate_item_key_wrapper(
     }
 }
 
-/// Combine multiple syn::Error instances into a single error
+/// Combine multiple `syn::Error` instances into a single error
 pub fn combine_errors(errors: Vec<Error>) -> Error {
     errors
         .into_iter()
@@ -117,7 +117,7 @@ fn wrapper_ident(field: &FinalizedField) -> Ident {
     Ident::new(&sym_key, field.name.span())
 }
 
-/// Parse a single field into FieldInfo, stripping attributes
+/// Parse a single field into `FieldInfo`, stripping attributes
 fn parse_field(field: &mut syn::Field) -> Result<FieldInfo> {
     let mut short_key: Option<String> = None;
     let mut symbolic = false;
@@ -205,7 +205,7 @@ fn reserve_explicit_keys(
             if reserved_short_names.contains(key) {
                 errors.push(Error::new(
                     field.span,
-                    format!("Duplicate explicit short key '{}'", key),
+                    format!("Duplicate explicit short key '{key}'"),
                 ));
             }
             let camel = key.to_upper_camel_case();
@@ -213,8 +213,7 @@ fn reserve_explicit_keys(
                 errors.push(Error::new(
                     field.span,
                     format!(
-                        "Explicit short key '{}' leads to duplicate type name '{}' in keys module",
-                        key, camel
+                        "Explicit short key '{key}' leads to duplicate type name '{camel}' in keys module"
                     ),
                 ));
             }
@@ -238,6 +237,7 @@ fn generate_short_key(
     reserved_camel_names: &mut HashSet<String>,
     span: proc_macro2::Span,
 ) -> Result<String> {
+    const MAX_SUFFIX: usize = 99;
     if !auto_shorten {
         let proposed = base_name.to_string();
         let proposed_camel = proposed.to_upper_camel_case();
@@ -245,13 +245,12 @@ fn generate_short_key(
             return Err(Error::new(
                 span,
                 format!(
-                    "Collision with field name '{}'. Use #[short_key] or enable auto_shorten.",
-                    proposed
+                    "Collision with field name '{proposed}'. Use #[short_key] or enable auto_shorten."
                 ),
             ));
         }
         if reserved_camel_names.contains(&proposed_camel) {
-            return Err(Error::new(span, format!("Field name '{}' leads to duplicate type name '{}' in keys module. Use #[short_key] or enable auto_shorten.", proposed, proposed_camel)));
+            return Err(Error::new(span, format!("Field name '{proposed}' leads to duplicate type name '{proposed_camel}' in keys module. Use #[short_key] or enable auto_shorten.")));
         }
         reserved_short_names.insert(proposed.clone());
         reserved_camel_names.insert(proposed_camel);
@@ -260,7 +259,6 @@ fn generate_short_key(
 
     let camel_base = base_name.to_upper_camel_case();
     let mut len: usize = 1;
-    const MAX_SUFFIX: usize = 99;
 
     loop {
         let candidate: String = camel_base.chars().take(len).collect();
@@ -276,7 +274,7 @@ fn generate_short_key(
         if len > camel_base.chars().count() {
             // Full name conflicts, append counter
             for i in 0..=MAX_SUFFIX {
-                let cand_str = format!("{}{}", camel_base, i);
+                let cand_str = format!("{camel_base}{i}");
                 if !reserved_short_names.contains(&cand_str)
                     && !reserved_camel_names.contains(&cand_str)
                 {
@@ -372,10 +370,7 @@ fn generate_symbolic_wrapper(field: &FinalizedField) -> Result<proc_macro2::Toke
     if syn::parse_str::<Ident>(&sym_key).is_err() {
         return Err(Error::new(
             field.name.span(),
-            format!(
-                "Derived key wrapper name '{}' is not a valid Rust identifier",
-                sym_key
-            ),
+            format!("Derived key wrapper name '{sym_key}' is not a valid Rust identifier"),
         ));
     }
 
@@ -478,7 +473,7 @@ fn generate_field_init(
     }
 }
 
-/// Generate accessor method if auto_shorten is enabled
+/// Generate accessor method if `auto_shorten` is enabled
 fn generate_accessor_method(
     field: &FinalizedField,
     module_name: &Ident,

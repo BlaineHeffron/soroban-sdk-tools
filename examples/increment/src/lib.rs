@@ -1,6 +1,6 @@
 #![no_std]
-use soroban_sdk::{Address, Env, Symbol, contract, contractimpl, log, symbol_short};
-use soroban_sdk_tools::{InstanceItem, PersistentMap, contractstorage};
+use soroban_sdk::{contract, contractimpl, log, Address, Env};
+use soroban_sdk_tools::{contractstorage, InstanceItem, PersistentMap};
 
 #[contractstorage]
 pub struct Counter {
@@ -14,11 +14,12 @@ pub struct IncrementContract;
 #[contractimpl]
 impl IncrementContract {
     /// Increment increments an internal counter, and returns the value.
-    pub fn increment(env: Env) -> u32 {
-        let storage = Counter::new(&env);
+    #[must_use]
+    pub fn increment(env: &Env) -> u32 {
+        let storage = Counter::new(env);
         // Get the current count.
         let mut count = storage.value.get().unwrap_or(0); // If no value set, assume 0.
-        log!(&env, "count: {}", count);
+        log!(env, "count: {}", count);
 
         // Increment the count.
         count += 1;
@@ -36,11 +37,12 @@ impl IncrementContract {
         count
     }
 
-    pub fn increment_for(env: Env, addr: &Address) -> u32 {
-        let storage = Counter::new(&env);
+    #[must_use]
+    pub fn increment_for(env: &Env, addr: &Address) -> u32 {
+        let storage = Counter::new(env);
         // Get the current count for the address.
         let mut count = storage.values.get(addr).unwrap_or(0); // If no value set, assume 0.
-        log!(&env, "count for {}: {}", addr, count);
+        log!(env, "count for {}: {}", addr, count);
 
         // Increment the count.
         count += 1;

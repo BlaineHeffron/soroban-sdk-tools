@@ -1,6 +1,6 @@
 #![cfg(test)]
 use crate::{IncrementContract, IncrementContractClient};
-use soroban_sdk::{Address, Env, testutils::Address as _};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test() {

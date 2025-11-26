@@ -5,7 +5,7 @@
 //!
 //! The implementation is split into three modules:
 //! - `single`: Handles single-struct processing via #[contractstorage]
-//! - `module`: Handles module-level processing via #[contractstorage_module]
+//! - `module`: Handles module-level processing via #[`contractstorage_module`]
 //! - `common`: Shared utilities and core transformation logic
 
 mod common;

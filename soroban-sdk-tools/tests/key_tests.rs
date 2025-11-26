@@ -390,7 +390,6 @@ fn test_tuple_keys_materialize() {
         kv.push_back(Symbol::new(&env, "Cells").into_val(&env));
         kv.push_back(t.into_val(&env));
         let k: Val = kv.into_val(&env);
-        env.logs().add("", &[k.clone()]);
         assert!(env.storage().persistent().has(&k));
     });
 }

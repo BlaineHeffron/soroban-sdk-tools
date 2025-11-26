@@ -6,13 +6,13 @@
 use syn::{Error, Ident, Type};
 
 pub trait TypeExt {
-    /// Get the base type name from a Type (e.g., PersistentMap<K, V> -> "PersistentMap")
+    /// Get the base type name from a Type (e.g., `PersistentMap`<K, V> -> "`PersistentMap`")
     fn get_type_name(&self) -> Option<String>;
 
     /// Extract key and value types from a map type
     fn extract_map_generics(&self) -> syn::Result<(Type, Type, Ident)>;
 
-    /// Check if a type is a storage map type (PersistentMap, InstanceMap, TemporaryMap)
+    /// Check if a type is a storage map type (`PersistentMap`, `InstanceMap`, `TemporaryMap`)
     fn is_storage_map_type(&self) -> bool {
         matches!(
             self.get_type_name().as_deref(),
@@ -20,7 +20,7 @@ pub trait TypeExt {
         )
     }
 
-    /// Check if a type is a storage item type (PersistentItem, InstanceItem, TemporaryItem)
+    /// Check if a type is a storage item type (`PersistentItem`, `InstanceItem`, `TemporaryItem`)
     fn is_storage_item_type(&self) -> bool {
         matches!(
             self.get_type_name().as_deref(),

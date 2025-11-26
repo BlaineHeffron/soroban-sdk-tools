@@ -39,6 +39,7 @@ impl ItemKey {
     }
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub trait Storage {
     fn from_env(env: &Env) -> Self
     where
@@ -355,12 +356,6 @@ where
 
     fn composite_key_val(&self, key: &K) -> Val {
         let w: W = key.clone().into();
-        self.env.logs().add("map mode is raw ", &[
-            match &self.mode {
-                MapKeyMode::Hashed(_) => false.into_val(&self.env),
-                MapKeyMode::Raw => true.into_val(&self.env),
-            },
-        ]);
         match &self.mode {
             MapKeyMode::Hashed(prefix) => make_map_key(&self.env, prefix, &w),
             MapKeyMode::Raw => w.to_key(&self.env),
@@ -376,7 +371,6 @@ where
     /// Set a value in the map
     pub fn set(&self, key: &K, value: &V) {
         let k = self.composite_key_val(key);
-        self.env.logs().add("setting key", &[k.clone()]);
         S::from_env(&self.env).set(&k, value);
     }
 

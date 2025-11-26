@@ -1,4 +1,4 @@
-//! Module-level processing for #[contractstorage_module]
+//! Module-level processing for #[`contractstorage_module`]
 //!
 //! This module handles the module-level attribute macro that processes
 //! multiple structs together for global key management and collision detection.
@@ -8,11 +8,14 @@ use std::collections::HashSet;
 use darling::{ast::NestedMeta, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, punctuated::Punctuated, Error, Item, ItemMod, ItemStruct, Token};
+use syn::{
+    parse_macro_input, punctuated::Punctuated, token::Brace, Error, Item, ItemMod, ItemStruct,
+    Token,
+};
 
 use super::common::{expand_struct_with_keys, StorageArgs};
 
-/// Implementation of #[contractstorage_module] attribute macro
+/// Implementation of #[`contractstorage_module`] attribute macro
 ///
 /// This macro processes an inline module containing multiple structs annotated
 /// with #[contractstorage]. It enables global key management across all structs
@@ -41,16 +44,13 @@ pub fn contractstorage_module_impl(_attr: TokenStream, item: TokenStream) -> Tok
     let mut module = parse_macro_input!(item as ItemMod);
 
     // Only works on inline modules (mod name { ... })
-    let content = match &mut module.content {
-        Some((_, items)) => items,
-        None => {
-            return Error::new_spanned(
-                &module,
-                "#[contractstorage_module] requires an inline module",
-            )
-            .to_compile_error()
-            .into();
-        }
+    let Some((_, content)) = &mut module.content else {
+        return Error::new_spanned(
+            &module,
+            "#[contractstorage_module] requires an inline module",
+        )
+        .to_compile_error()
+        .into();
     };
 
     // Collect all #[contractstorage(...)] structs and their settings
@@ -65,7 +65,7 @@ pub fn contractstorage_module_impl(_attr: TokenStream, item: TokenStream) -> Tok
     let mut reserved_short_names: HashSet<String> = HashSet::new();
     let mut rebuilt: Vec<Vec<Item>> = vec![];
 
-    for (s, args) in structs.into_iter() {
+    for (s, args) in structs {
         match expand_struct_with_keys(
             s,
             args.auto_shorten,
@@ -79,24 +79,20 @@ pub fn contractstorage_module_impl(_attr: TokenStream, item: TokenStream) -> Tok
 
     // Replace original structs: filter out original marked structs, then append rebuilt ones
     let new_items = rebuild_module_items(content, rebuilt);
-    module.content = Some((Default::default(), new_items));
+    module.content = Some((Brace::default(), new_items));
 
     quote!(#module).into()
 }
 
 /// Collect all structs with #[contractstorage] annotations from the module
 fn collect_contractstorage_structs(items: &[Item]) -> Vec<(ItemStruct, StorageArgs)> {
-    let mut structs: Vec<(ItemStruct, StorageArgs)> = vec![];
-
-    for it in items.iter() {
-        if let Item::Struct(s) = it {
-            if let Some(args) = parse_contractstorage_attrs(&s.attrs) {
-                structs.push((s.clone(), args));
-            }
-        }
-    }
-
-    structs
+    items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Struct(s) => parse_contractstorage_attrs(&s.attrs).map(|args| (s.clone(), args)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parse #[contractstorage] attributes to extract settings
