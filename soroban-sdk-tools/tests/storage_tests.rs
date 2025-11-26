@@ -88,35 +88,35 @@ mod token {
             Storage::new(&env).supply.get()
         }
 
-        pub fn set_balance(env: Env, addr: Address, amount: u64) {
+        pub fn set_balance(env: Env, addr: &Address, amount: u64) {
             Storage::new(&env).balances.set(addr, &amount);
         }
 
-        pub fn get_balance(env: Env, addr: Address) -> Option<u64> {
+        pub fn get_balance(env: Env, addr: &Address) -> Option<u64> {
             Storage::new(&env).balances.get(addr)
         }
 
-        pub fn has_balance(env: Env, addr: Address) -> bool {
+        pub fn has_balance(env: Env, addr: &Address) -> bool {
             Storage::new(&env).balances.has(addr)
         }
 
-        pub fn remove_balance(env: Env, addr: Address) {
+        pub fn remove_balance(env: Env, addr: &Address) {
             Storage::new(&env).balances.remove(addr);
         }
 
-        pub fn transfer(env: Env, from: Address, to: Address, amount: u64) -> Result<(), Error> {
+        pub fn transfer(env: Env, from: &Address, to: &Address, amount: u64) -> Result<(), Error> {
             let storage = Storage::new(&env);
 
             let from_balance = storage
                 .balances
-                .get(from.clone())
+                .get(from)
                 .ok_or(Error::NoSenderBalance)?;
 
             if from_balance < amount {
                 return Err(Error::InsufficientBalance);
             }
 
-            let to_balance = storage.balances.get(to.clone()).unwrap_or(0);
+            let to_balance = storage.balances.get(to).unwrap_or(0);
 
             storage.balances.set(from, &(from_balance - amount));
             storage.balances.set(to, &(to_balance + amount));
@@ -140,19 +140,19 @@ mod temp_storage {
 
     #[contractimpl]
     impl TempContract {
-        pub fn set_data(env: Env, addr: Address, val: u64) {
+        pub fn set_data(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).data.set(addr, &val);
         }
 
-        pub fn get_data(env: Env, addr: Address) -> Option<u64> {
+        pub fn get_data(env: Env, addr: &Address) -> Option<u64> {
             Storage::new(&env).data.get(addr)
         }
 
-        pub fn has_data(env: Env, addr: Address) -> bool {
+        pub fn has_data(env: Env, addr: &Address) -> bool {
             Storage::new(&env).data.has(addr)
         }
 
-        pub fn remove_data(env: Env, addr: Address) {
+        pub fn remove_data(env: Env, addr: &Address) {
             Storage::new(&env).data.remove(addr);
         }
 

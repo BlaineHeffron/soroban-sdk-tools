@@ -134,6 +134,7 @@ impl StorageKey for BytesN<32> {
 /// ```ignore
 /// let key = hash_key(&env, &prefix_bytes, Some(&addr_bytes));
 /// ```
+#[must_use] 
 pub fn hash_key(env: &Env, prefix: &Bytes, key_data: Option<&Bytes>) -> BytesN<32> {
     let mut key_bytes = prefix.clone();
     if let Some(data) = key_data {
@@ -146,15 +147,15 @@ pub fn hash_key(env: &Env, prefix: &Bytes, key_data: Option<&Bytes>) -> BytesN<3
 ///
 /// Combines a field prefix (struct name + field name) with a key.
 /// Optimizes by using direct bytes if the composite is <=32 bytes,
-/// otherwise hashes to BytesN<32>.
+/// otherwise hashes to `BytesN`<32>.
 ///
 /// # Arguments
 /// * `env` - The Soroban environment
 /// * `prefix` - The field prefix as Bytes
-/// * `key` - The map key implementing StorageKey
+/// * `key` - The map key implementing `StorageKey`
 ///
 /// # Returns
-/// A Val suitable for use as a storage key (either Bytes or BytesN<32>)
+/// A Val suitable for use as a storage key (either Bytes or `BytesN`<32>)
 ///
 /// # Example
 /// ```ignore

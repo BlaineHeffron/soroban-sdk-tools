@@ -33,27 +33,27 @@ mod aggregated {
 
     #[contractimpl]
     impl Agg {
-        pub fn set_a(env: Env, addr: Address, bal: u64, bon: u64, burn: u64, total: u64) {
+        pub fn set_a(env: Env, addr: &Address, bal: u64, bon: u64, burn: u64, total: u64) {
             let s = AStorage::new(&env);
-            s.balance().set(addr.clone(), &bal);
-            s.bonus().set(addr.clone(), &bon);
+            s.balance().set(addr, &bal);
+            s.bonus().set(addr, &bon);
             s.burn().set(addr, &burn);
             s.total().set(&total);
         }
 
-        pub fn set_b(env: Env, addr: Address, bal: u64, bon: u64, burn: u64, total: u64) {
+        pub fn set_b(env: Env, addr: &Address, bal: u64, bon: u64, burn: u64, total: u64) {
             let s = BStorage::new(&env);
-            s.balance().set(addr.clone(), &bal);
-            s.bonus().set(addr.clone(), &bon);
+            s.balance().set(addr, &bal);
+            s.bonus().set(addr, &bon);
             s.burn().set(addr, &burn);
             s.total().set(&total);
         }
 
-        pub fn get_a_balance(env: Env, addr: Address) -> Option<u64> {
+        pub fn get_a_balance(env: Env, addr: &Address) -> Option<u64> {
             AStorage::new(&env).balance().get(addr)
         }
 
-        pub fn get_b_balance(env: Env, addr: Address) -> Option<u64> {
+        pub fn get_b_balance(env: Env, addr: &Address) -> Option<u64> {
             BStorage::new(&env).balance().get(addr)
         }
     }

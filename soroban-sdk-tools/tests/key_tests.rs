@@ -24,15 +24,15 @@ mod numeric {
     #[contractimpl]
     impl Numbers {
         pub fn set_count(env: Env, key: u32, val: u64) {
-            Storage::new(&env).counts.set(key, &val);
+            Storage::new(&env).counts.set(&key, &val);
         }
 
         pub fn get_count(env: Env, key: u32) -> Option<u64> {
-            Storage::new(&env).counts.get(key)
+            Storage::new(&env).counts.get(&key)
         }
 
         pub fn has_count(env: Env, key: u32) -> bool {
-            Storage::new(&env).counts.has(key)
+            Storage::new(&env).counts.has(&key)
         }
     }
 }
@@ -55,11 +55,11 @@ mod tuple {
     #[contractimpl]
     impl Grid {
         pub fn set_cell(env: Env, x: u32, y: u32, val: u64) {
-            Storage::new(&env).cells.set((x, y), &val);
+            Storage::new(&env).cells.set(&(x, y), &val);
         }
 
         pub fn get_cell(env: Env, x: u32, y: u32) -> Option<u64> {
-            Storage::new(&env).cells.get((x, y))
+            Storage::new(&env).cells.get(&(x, y))
         }
     }
 }
@@ -83,7 +83,7 @@ mod autoshorten {
 
     #[contractimpl]
     impl AutoShorten {
-        pub fn set_balance(env: Env, addr: Address, v: u64) {
+        pub fn set_balance(env: Env, addr: &Address, v: u64) {
             Storage::new(&env).balance().set(addr, &v);
         }
 
@@ -92,7 +92,7 @@ mod autoshorten {
         }
 
         pub fn set_pair(env: Env, x: u32, y: u32, v: u64) {
-            Storage::new(&env).pair().set((x, y), &v);
+            Storage::new(&env).pair().set(&(x, y), &v);
         }
     }
 }
@@ -119,7 +119,7 @@ mod override_keys {
 
     #[contractimpl]
     impl Override {
-        pub fn set_mapx(env: Env, addr: Address, val: u64) {
+        pub fn set_mapx(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).mapx().set(addr, &val);
         }
 
@@ -128,7 +128,7 @@ mod override_keys {
         }
 
         pub fn set_tuple(env: Env, x: u32, y: u32, val: u64) {
-            Storage::new(&env).tuple().set((x, y), &val);
+            Storage::new(&env).tuple().set(&(x, y), &val);
         }
     }
 }
@@ -153,7 +153,7 @@ mod datakey_style {
 
     #[contractimpl]
     impl DataKeyStyle {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balances.set(addr, &val);
         }
 
@@ -162,7 +162,7 @@ mod datakey_style {
         }
 
         pub fn set_cell(env: Env, x: u32, y: u32, val: u64) {
-            Storage::new(&env).cells.set((x, y), &val);
+            Storage::new(&env).cells.set(&(x, y), &val);
         }
     }
 }
@@ -390,6 +390,7 @@ fn test_tuple_keys_materialize() {
         kv.push_back(Symbol::new(&env, "Cells").into_val(&env));
         kv.push_back(t.into_val(&env));
         let k: Val = kv.into_val(&env);
+        env.logs().add("", &[k.clone()]);
         assert!(env.storage().persistent().has(&k));
     });
 }

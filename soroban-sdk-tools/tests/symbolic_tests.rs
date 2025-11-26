@@ -26,7 +26,7 @@ mod symbolic_auto {
 
     #[contractimpl]
     impl SymbolicAuto {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balance.set(addr, &val);
         }
 
@@ -57,7 +57,7 @@ mod symbolic_per_field {
 
     #[contractimpl]
     impl SymbolicPerField {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balance.set(addr, &val);
         }
 
@@ -89,7 +89,7 @@ mod symbolic_no_auto {
 
     #[contractimpl]
     impl SymbolicNoAuto {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balance_map.set(addr, &val);
         }
 
@@ -127,7 +127,7 @@ mod symbolic_shortkey {
 
     #[contractimpl]
     impl SymbolicShortKey {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balance.set(addr, &val);
         }
 
@@ -135,7 +135,7 @@ mod symbolic_shortkey {
             Storage::new(&env).total.set(&val);
         }
 
-        pub fn set_balance_auto(env: Env, addr: Address, val: u64) {
+        pub fn set_balance_auto(env: Env, addr: &Address, val: u64) {
             AutoStorage::new(&env).balance.set(addr, &val);
         }
 
@@ -165,7 +165,7 @@ mod mixed_symbolic {
 
     #[contractimpl]
     impl MixedSymbolic {
-        pub fn set_balance(env: Env, addr: Address, val: u64) {
+        pub fn set_balance(env: Env, addr: &Address, val: u64) {
             Storage::new(&env).balance.set(addr, &val);
         }
 
