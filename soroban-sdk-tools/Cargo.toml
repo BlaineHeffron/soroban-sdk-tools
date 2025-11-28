@@ -1,0 +1,22 @@
+[package]
+name = "soroban-sdk-tools"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Enhanced tools for Soroban smart contract development"
+readme = "README.md"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+soroban-sdk-tools-macro = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[features]
+default = []
+std = []  # Enable for proc macro usage where std is available
+testutils = ["soroban-sdk/testutils"]
