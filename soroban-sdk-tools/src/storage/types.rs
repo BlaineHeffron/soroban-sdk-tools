@@ -391,6 +391,11 @@ where
         let k = self.composite_key_val(key);
         S::from_env(&self.env).extend_ttl(&k, threshold, extend_to);
     }
+
+    /// Get the storage key for a given map key
+    pub fn get_storage_key(&self, key: &K) -> Val {
+        self.composite_key_val(key)
+    }
 }
 
 /// A single persistent value
@@ -448,5 +453,10 @@ where
 
     pub fn extend_ttl(&self, threshold: u32, extend_to: u32) {
         S::from_env(&self.env).extend_ttl(&self.key, threshold, extend_to);
+    }
+
+    /// Get the storage key
+    pub fn get_storage_key(&self) -> Val {
+        self.key.clone().into_val(&self.env)
     }
 }
