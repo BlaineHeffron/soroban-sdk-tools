@@ -8,11 +8,11 @@ resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Blaine Heffron", "Willem Wyndham"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 rust-version = "1.74"
-repository = "https://github.com/yourusername/soroban-sdk-tools"
+repository = "https://github.com/blaineheffron/soroban-sdk-tools"
 
 [workspace.dependencies]
 soroban-sdk = "23.2.1"

@@ -500,6 +500,50 @@ fn generate_accessor_method(
     ))
 }
 
+fn generate_key_method(
+    field: &FinalizedField,
+    struct_name: &Ident,
+    auto_shorten: bool,
+) -> Result<proc_macro2::TokenStream> {
+    let field_name = &field.name;
+    let method_name_str = format!(
+        "get_{}_{}_key",
+        struct_name.to_string().to_snake_case(),
+        field_name.to_string()
+    );
+    let method_name = Ident::new(&method_name_str, field.name.span());
+
+    let accessor = if auto_shorten {
+        quote! { self.#field_name() }
+    } else {
+        quote! { self.#field_name }  // Changed: removed the & here
+    };
+
+    if field.ty.is_storage_map_type() {
+        let (key_ty, _, _) = field.ty.extract_map_generics()?;
+        Ok(quote! {
+            pub fn #method_name(&self, key: #key_ty) -> ::soroban_sdk::Val {
+                #accessor.get_storage_key(&key)
+            }
+        })
+    } else if field.ty.is_storage_item_type() {
+        Ok(quote! {
+            pub fn #method_name(&self) -> ::soroban_sdk::Val {
+                #accessor.get_storage_key()
+            }
+        })
+    } else {
+        let type_name = field
+            .ty
+            .get_type_name()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        Err(Error::new_spanned(
+            &field.ty,
+            format!("Unsupported storage type '{type_name}' for key method."),
+        ))
+    }
+}
+
 /// Generate the output items from finalized fields
 pub fn generate_items(
     item_struct: &ItemStruct,
@@ -527,7 +571,6 @@ pub fn generate_items(
     if has_symbolic {
         additional_items.push(generate_keys_module(&symbolic_fields, &module_name)?);
     }
-
     // Generate rewritten fields, inits, and accessors
     let rewritten_fields: Vec<_> = finalized_fields
         .iter()
@@ -546,6 +589,11 @@ pub fn generate_items(
         .into_iter()
         .flatten()
         .collect();
+
+    let key_methods: Vec<proc_macro2::TokenStream> = finalized_fields
+        .iter()
+        .map(|f| generate_key_method(f, struct_name, auto_shorten))
+        .collect::<Result<Vec<_>>>()?;
 
     // Only rebuild when symbolic maps require type changes
     let needs_rebuilt = finalized_fields
@@ -574,6 +622,7 @@ pub fn generate_items(
                 }
             }
             #(#accessor_methods)*
+            #(#key_methods)*
         }
     })?;
 
