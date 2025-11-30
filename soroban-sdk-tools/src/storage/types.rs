@@ -396,6 +396,11 @@ where
     pub fn get_storage_key(&self, key: &K) -> Val {
         self.composite_key_val(key)
     }
+
+    pub fn update(&self, key: &K, f: impl FnOnce(Option<V>) -> V) -> V {
+        let k = self.composite_key_val(key);
+        S::from_env(&self.env).update(&k, f)
+    }
 }
 
 /// A single persistent value
@@ -458,5 +463,9 @@ where
     /// Get the storage key
     pub fn get_storage_key(&self) -> Val {
         self.key.clone().into_val(&self.env)
+    }
+
+    pub fn update(&self, f: impl FnOnce(Option<V>) -> V) -> V {
+        S::from_env(&self.env).update(&self.key, f)
     }
 }
