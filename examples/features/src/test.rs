@@ -1,6 +1,9 @@
 #![cfg(test)]
 use crate::{FeaturesContract, FeaturesContractClient};
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 #[test]
 fn test_mixed_storage_flow() {
@@ -73,7 +76,7 @@ fn test_symbolic_vs_hashed_keys() {
     // Verify Instance storage uses symbolic keys
     env.as_contract(&contract_id, || {
         use soroban_sdk::{IntoVal, Symbol, Val};
-        
+
         // Config.admin is stored as Symbol("Admin")
         let key: Val = Symbol::new(&env, "Admin").into_val(&env);
         assert!(env.storage().instance().has(&key));

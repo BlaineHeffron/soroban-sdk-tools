@@ -516,7 +516,7 @@ fn generate_key_method(
     let accessor = if auto_shorten {
         quote! { self.#field_name() }
     } else {
-        quote! { self.#field_name }  // Changed: removed the & here
+        quote! { self.#field_name } // Changed: removed the & here
     };
 
     if field.ty.is_storage_map_type() {
