@@ -7,14 +7,14 @@ use soroban_sdk::{
 
 #[test]
 fn test_mixed_storage_flow() {
-    let env = Env::default();
+    let env = &Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(&env, &contract_id);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
+    let admin = Address::generate(env);
+    let user = Address::generate(env);
 
     // 1. Initialize (Instance Storage)
     client.init(&admin);
@@ -35,14 +35,14 @@ fn test_mixed_storage_flow() {
 
 #[test]
 fn test_rate_limiting() {
-    let env = Env::default();
+    let env = &Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(&env, &contract_id);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
+    let admin = Address::generate(env);
+    let user = Address::generate(env);
 
     client.init(&admin);
 
@@ -64,13 +64,13 @@ fn test_rate_limiting() {
 
 #[test]
 fn test_symbolic_vs_hashed_keys() {
-    let env = Env::default();
+    let env = &Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(&env, &contract_id);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
-    let admin = Address::generate(&env);
+    let admin = Address::generate(env);
     client.init(&admin);
 
     // Verify Instance storage uses symbolic keys
@@ -78,7 +78,7 @@ fn test_symbolic_vs_hashed_keys() {
         use soroban_sdk::{IntoVal, Symbol, Val};
 
         // Config.admin is stored as Symbol("Admin")
-        let key: Val = Symbol::new(&env, "Admin").into_val(&env);
+        let key: Val = Symbol::new(env, "Admin").into_val(env);
         assert!(env.storage().instance().has(&key));
     });
 }

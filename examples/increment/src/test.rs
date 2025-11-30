@@ -4,9 +4,9 @@ use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn increment() {
-    let env = Env::default();
+    let env = &Env::default();
     let contract_id = env.register(IncrementContract, ());
-    let client = IncrementContractClient::new(&env, &contract_id);
+    let client = IncrementContractClient::new(env, &contract_id);
 
     assert_eq!(client.increment(), 1);
     assert_eq!(client.increment(), 2);
@@ -15,9 +15,9 @@ fn increment() {
 
 #[test]
 fn increment_by() {
-    let env = Env::default();
+    let env = &Env::default();
     let contract_id = env.register(IncrementContract, ());
-    let client = IncrementContractClient::new(&env, &contract_id);
+    let client = IncrementContractClient::new(env, &contract_id);
 
     assert_eq!(client.increment_by(&5), 5);
     assert_eq!(client.increment_by(&10), 15);
@@ -26,11 +26,11 @@ fn increment_by() {
 
 #[test]
 fn increment_for() {
-    let env = Env::default();
+    let env = &Env::default();
     let contract_id = env.register(IncrementContract, ());
-    let client = IncrementContractClient::new(&env, &contract_id);
-    let addr1 = Address::generate(&env);
-    let addr2 = Address::generate(&env);
+    let client = IncrementContractClient::new(env, &contract_id);
+    let addr1 = Address::generate(env);
+    let addr2 = Address::generate(env);
     assert_eq!(client.increment_for(&addr1), 1);
     assert_eq!(client.increment_for(&addr1), 2);
     assert_eq!(client.increment_for(&addr2), 1);

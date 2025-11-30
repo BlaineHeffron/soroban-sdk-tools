@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use crate::util::TypeExt;
 use darling::FromMeta;
 use heck::{ToSnakeCase, ToUpperCamelCase};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
     spanned::Spanned, Error, Fields, Ident, Item, ItemStruct, Lit, LitStr, Meta, MetaNameValue,
     Result, Type, Visibility,
@@ -329,11 +329,11 @@ pub fn assign_short_keys(
             )?);
         }
 
-        let key = info.short_key.as_ref().unwrap().clone();
+        let key = info.short_key.as_deref().unwrap();
         let is_symbolic = info.symbolic || struct_symbolic || !auto_shorten;
 
         if is_symbolic {
-            validate_symbolic_key(&key, info.span)?;
+            validate_symbolic_key(key, info.span)?;
         }
 
         // Propagate computed symbolic mode into FinalizedField
@@ -506,12 +506,11 @@ fn generate_key_method(
     auto_shorten: bool,
 ) -> Result<proc_macro2::TokenStream> {
     let field_name = &field.name;
-    let method_name_str = format!(
+    let method_name = format_ident!(
         "get_{}_{}_key",
         struct_name.to_string().to_snake_case(),
-        field_name.to_string()
+        field_name
     );
-    let method_name = Ident::new(&method_name_str, field.name.span());
 
     let accessor = if auto_shorten {
         quote! { self.#field_name() }

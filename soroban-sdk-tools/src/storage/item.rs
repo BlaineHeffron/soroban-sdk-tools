@@ -2,7 +2,7 @@ use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
 
 use crate::{key::hash_key, storage::types::Storage};
 
-/// Internal enum to represent the storage key for a StorageItem
+/// Internal enum to represent the storage key for a `StorageItem`
 #[derive(Clone)]
 enum ItemKey {
     /// Hashed key (for prefixes > 32 bytes)
