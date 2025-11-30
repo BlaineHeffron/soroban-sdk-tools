@@ -8,9 +8,12 @@
 
 use soroban_sdk::storage::{Instance, Persistent, Temporary};
 
+pub mod item;
+pub mod map;
 pub mod types;
 
-use types::{StorageItem, StorageMap};
+use item::StorageItem;
+use map::StorageMap;
 
 /// A persistent key-value map with automatic key optimization
 pub type PersistentMap<K, V, W = K> = StorageMap<Persistent, K, V, W>;
