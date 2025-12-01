@@ -37,6 +37,16 @@ impl IncrementContract {
         count
     }
 
+    /// Increment increments an internal counter by `amount`, and returns the value.
+    #[must_use]
+    pub fn increment_by(env: &Env, amount: u32) -> u32 {
+        Counter::new(env).value.update(|current| {
+            let new_value = current.unwrap_or(0).saturating_add(amount);
+            log!(env, "incrementing by {}, new value: {}", amount, new_value);
+            new_value
+        })
+    }
+
     #[must_use]
     pub fn increment_for(env: &Env, addr: &Address) -> u32 {
         let storage = Counter::new(env);

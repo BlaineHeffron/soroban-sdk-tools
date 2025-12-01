@@ -2,7 +2,7 @@
 //! Tests get_<struct>_<field>_key methods for retrieving storage keys.
 
 use soroban_sdk::{contract, contractimpl, testutils::Address as _, Bytes, BytesN};
-use soroban_sdk::{Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec as HostVec, xdr::ToXdr};
+use soroban_sdk::{xdr::ToXdr, Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec as HostVec};
 use soroban_sdk_tools::{PersistentItem, PersistentMap};
 use soroban_sdk_tools_macro::contractstorage;
 
@@ -282,7 +282,6 @@ fn test_key_consistency_with_actual_storage() {
 #[test]
 fn test_key_view_different_keys_for_different_values() {
     let env = Env::default();
-    let id = env.register(autoshorten::KeyView, ());
     let addr1 = Address::generate(&env);
     let addr2 = Address::generate(&env);
     let storage = autoshorten::Storage::new(&env);
@@ -298,7 +297,6 @@ fn test_key_view_different_keys_for_different_values() {
 #[test]
 fn test_key_view_same_key_for_same_value() {
     let env = Env::default();
-    let id = env.register(autoshorten::KeyView, ());
     let addr = Address::generate(&env);
     let storage = autoshorten::Storage::new(&env);
 
