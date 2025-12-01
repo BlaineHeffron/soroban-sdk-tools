@@ -1,7 +1,7 @@
 //! Error handling utilities for Soroban contracts
 //!
 //! Provides traits and helper types for composable error handling
-//! with the #[scerr] macro.
+//! with the `#[scerr]` macro.
 
 // Re-export contracterror for users
 pub use soroban_sdk::contracterror;
