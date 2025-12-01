@@ -17,7 +17,7 @@ repository = "https://github.com/blaineheffron/soroban-sdk-tools"
 [workspace.dependencies]
 soroban-sdk = "23.2.1"
 soroban-sdk-tools = { path = "soroban-sdk-tools", version = "0.1.0" }
-soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro" }
+soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro", version = "0.1.0" } 
 
 # Macro dependencies
 syn = { version = "2.0.111", features = ["full", "extra-traits"] }
