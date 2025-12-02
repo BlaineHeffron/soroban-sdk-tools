@@ -66,7 +66,7 @@ pub struct FeaturesContract;
 #[contractimpl]
 impl FeaturesContract {
     /// Initialize the contract with an admin.
-    pub fn init(env: &Env, admin: &Address) -> Result<(), Error> {
+    pub fn __constructor(env: &Env, admin: &Address) -> Result<(), Error> {
         let config = Config::new(env);
 
         if config.admin.has() {
