@@ -198,11 +198,11 @@ The following table shows how different attribute combinations affect key genera
 
 #### Key View Methods
 
-Generated methods like `get_storage_<field>_key` allow inspecting the underlying storage key:
+Generated methods like `get_<struct>_<field>_key` allow inspecting the underlying storage key:
 
 ```rust
 let storage = TokenStorage::new(&env);
-let key = storage.get_storage_balances_key(addr.clone());
+let key = storage.get_token_storage_balances_key(addr.clone());
 // Use this key with env.storage() directly if needed
 ```
 
