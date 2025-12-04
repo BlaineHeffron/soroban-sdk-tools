@@ -129,21 +129,154 @@ For more examples, see the [tests](tests/) directory, which covers numeric keys,
 
 ### Error Handling
 
-The `#[scerr]` macro simplifies defining contract error enums with automatic `u32` code assignment, `repr(u32)`, and required traits (`Copy`, `Clone`, `TryFromVal`, `IntoVal`).
+The `#[scerr]` macro simplifies defining contract error enums with automatic `u32` code assignment, required traits, and composable error handling across contracts.
 
-#### Example
+#### Basic Mode
+
+For simple error enums within a single contract, use `#[scerr]`:
 
 ```rust
 use soroban_sdk_tools::scerr;
 
 #[scerr]
-pub enum Error {
+pub enum TokenError {
+    #[description = "insufficient balance for transfer"]
     InsufficientBalance,
     Unauthorized,
+    InvalidAmount,
 }
 ```
 
-This generates a Soroban-compatible error enum with unique codes (e.g., 1 and 2). For composable errors across contracts, use `#[scerr(root)]` on the top-level enum (TODO: Detailed composability features, including `#[transparent]` and `#[from_contract_client]`, are under development).
+This generates:
+- A `#[contracterror]` enum with `#[repr(u32)]`
+- Unique codes via DJB2 hashing (guaranteed non-zero)
+- `ContractError` trait implementation with `into_code()`, `from_code()`, and `description()` methods
+- All required Soroban conversion traits (`TryFromVal`, `IntoVal`, etc.)
+
+**Custom descriptions**: Use `#[description = "..."]` on variants for human-readable error messages. Without it, the variant name is used.
+
+#### Root Mode - Composable Errors
+
+For contracts that call other contracts or need to propagate errors from sub-modules, use `#[scerr(root)]`:
+
+```rust
+use soroban_sdk_tools::scerr;
+
+// Inner contract error
+#[scerr]
+pub enum MathError {
+    DivisionByZero,
+    NegativeInput,
+}
+
+// Outer contract with composable error handling
+#[scerr(root)]
+pub enum AppError {
+    // Own error variants
+    Unauthorized,
+    InvalidState,
+    
+    // Transparent propagation for in-process calls
+    #[transparent]
+    Math(#[from] MathError),
+    
+    // Cross-contract error handling
+    #[from_contract_client]
+    ExternalMath(MathError),
+    
+    // Handle abort errors (code 0)
+    #[from_abort_error]
+    Abort,
+}
+```
+
+**Root mode features**:
+
+1. **Transparent Propagation** (`#[transparent]`): For in-process error propagation using `?` operator
+   ```rust
+   pub fn calculate(x: i64, y: i64) -> Result<i64, AppError> {
+       // Math::divide returns Result<i64, MathError>
+       // The ? operator converts via From<MathError> to AppError::Math
+       let result = Math::divide(x, y)?;
+       Ok(result)
+   }
+   ```
+
+2. **Cross-Contract Errors** (`#[from_contract_client]`): For handling errors from contract clients
+   ```rust
+   pub fn call_external(env: Env, contract_id: Address) -> Result<i64, AppError> {
+       let client = MathClient::new(&env, &contract_id);
+       // Use ?? to handle both InvokeError and inner error
+       let result = client.try_divide(&10, &0)??;
+       Ok(result)
+   }
+   ```
+
+3. **Abort Handling** (`#[from_abort_error]`): Handles `InvokeError::Abort` (code 0)
+   ```rust
+   #[from_abort_error]
+   Abort,
+   ```
+
+4. **Automatic Conversions**: The `#[from]` attribute generates `From` impls:
+   ```rust
+   let math_err = MathError::DivisionByZero;
+   let app_err: AppError = math_err.into(); // Converts to AppError::Math
+   ```
+
+#### Architecture: 24/8 Bit Split
+
+Root mode uses a 24/8 bit split to prevent code collisions:
+- **Unit variants** (e.g., `Unauthorized`): Use codes 1-255 (8-bit namespace)
+- **Wrapped variants** (e.g., `Math(MathError)`): Use high 8 bits for namespace (index 1-255), low 24 bits for inner error code
+
+This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `2 << 24 | inner_code`).
+
+#### Mixed Usage Example
+
+You can use both `#[transparent]` and `#[from_contract_client]` for the same error type:
+
+```rust
+#[scerr(root)]
+pub enum AppError {
+    // For direct calls (same Wasm instance)
+    #[transparent]
+    MathDirect(#[from] MathError),
+    
+    // For cross-contract calls
+    #[from_contract_client]
+    MathRemote(MathError),
+}
+
+// Direct call uses transparent variant
+pub fn direct_calc(x: i64, y: i64) -> Result<i64, AppError> {
+    Math::divide(x, y)?  // Converts to MathDirect
+}
+
+// Cross-contract call uses from_contract_client variant
+pub fn remote_calc(env: Env, id: Address, x: i64, y: i64) -> Result<i64, AppError> {
+    let client = MathClient::new(&env, &id);
+    client.try_divide(&x, &y)??  // Converts to MathRemote
+}
+```
+
+#### Error Descriptions
+
+Access human-readable descriptions via the `ContractError` trait:
+
+```rust
+let err = TokenError::InsufficientBalance;
+println!("{}", err.description()); // "insufficient balance for transfer"
+```
+
+#### Best Practices
+
+- **Basic mode**: Use for simple contracts without cross-contract calls
+- **Root mode**: Use in contracts that call other contracts or need error composition
+- **Transparent**: Use for in-process error propagation (same Wasm)
+- **from_contract_client**: Use for cross-contract invocations
+- **from_abort_error**: Always include one variant with this attribute in root mode to handle unexpected aborts
+- **Avoid collisions**: Root mode automatically prevents collisions via bit splitting; basic mode uses hashing
 
 ### Authorization Testing
 
@@ -180,4 +313,4 @@ This project is licensed under the Apache-2.0 License.
 
 ## Acknowledgments
 
-This crate draws inspiration from the [loam-soroban-sdk](https://github.com/iron-fish/loam) project and aims to enhance the Soroban ecosystem.
+This crate draws inspiration from the [loam-soroban-sdk](https://github.com/loambuild/loam) project and aims to enhance the Soroban ecosystem.
