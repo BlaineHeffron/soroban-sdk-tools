@@ -78,13 +78,13 @@ impl Token {
     pub fn set_balance(env: &Env, addr: &Address, amount: u64) {
         TokenStorage::new(env).balances.set(addr, &amount);
     }
-
-    pub fn get_balance(env: Env, addr: &Address) -> Option<u64> {
-        TokenStorage::new(&env).balances.get(addr)
+    
+    pub fn get_balance(env: &Env, addr: &Address) -> Option<u64> {
+        TokenStorage::new(env).balances.get(addr)
     }
 
-    pub fn get_total_supply(env: Env) -> Option<u64> {
-        TokenStorage::new(&env).total_supply.get()
+    pub fn get_total_supply(env: &Env) -> Option<u64> {
+        TokenStorage::new(env).total_supply.get()
     }
 }
 ```
