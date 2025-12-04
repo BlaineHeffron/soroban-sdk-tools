@@ -76,7 +76,7 @@ pub struct Token;
 #[contractimpl]
 impl Token {
     pub fn set_balance(env: &Env, addr: &Address, amount: u64) {
-        TokenStorage::new(&env).balances.set(addr, &amount);
+        TokenStorage::new(env).balances.set(addr, &amount);
     }
 
     pub fn get_balance(env: Env, addr: &Address) -> Option<u64> {
