@@ -160,7 +160,7 @@ impl FeaturesContract {
     // Initialization - Demonstrates InstanceItem operations
     // ========================================================================
     
-    pub fn init(env: &Env, admin: &Address, name: String, symbol: String) -> Result<(), Error> {
+    pub fn __constructor(env: &Env, admin: &Address, name: String, symbol: String) -> Result<(), Error> {
         let config = Config::new(env);
         
         // Check if already initialized using .has()
