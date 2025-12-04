@@ -36,7 +36,27 @@ soroban-sdk-tools = { version = "0.1.0", features = ["testutils"] }
 
 ### Storage Management
 
-The `#[contractstorage]` macro allows defining storage structs with automatic key optimization. It generates accessors and optimizes keys by shortening prefixes (via `auto_shorten = true`) or using explicit short keys (via `#[short_key = "shortname"]`).
+The `#[contractstorage]` macro allows defining storage structs with typed wrappers around Soroban's storage interfaces. It provides automatic key management and reduces boilerplate for common storage operations.
+
+#### Storage Types
+
+**Map Types** (key-value storage):
+- `PersistentMap<K, V>`: Long-term storage that persists across contract upgrades
+- `InstanceMap<K, V>`: Per-instance configuration data with instance-level TTL
+- `TemporaryMap<K, V>`: Ephemeral storage with automatic expiry
+
+**Item Types** (single value storage):
+- `PersistentItem<V>`: Single persistent value
+- `InstanceItem<V>`: Single instance-scoped value
+- `TemporaryItem<V>`: Single temporary value
+
+All types support these operations:
+- `get(&key)` / `get()` - Retrieve a value
+- `set(&key, &value)` / `set(&value)` - Store a value
+- `has(&key)` / `has()` - Check if a value exists
+- `remove(&key)` / `remove()` - Delete a value
+- `extend_ttl(...)` - Extend the time-to-live
+- `update(&key, f)` / `update(f)` - Atomically read-modify-write
 
 #### Basic Example
 
@@ -44,7 +64,7 @@ The `#[contractstorage]` macro allows defining storage structs with automatic ke
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk_tools::{contractstorage, PersistentMap, PersistentItem};
 
-#[contractstorage(auto_shorten = true)]
+#[contractstorage]
 pub struct TokenStorage {
     balances: PersistentMap<Address, u64>,
     total_supply: PersistentItem<u64>,
@@ -56,56 +76,125 @@ pub struct Token;
 #[contractimpl]
 impl Token {
     pub fn set_balance(env: Env, addr: &Address, amount: u64) {
-        TokenStorage::new(&env).balances().set(addr, &amount);
+        TokenStorage::new(&env).balances.set(addr, &amount);
     }
 
     pub fn get_balance(env: Env, addr: &Address) -> Option<u64> {
-        TokenStorage::new(&env).balances().get(addr)
+        TokenStorage::new(&env).balances.get(addr)
+    }
+
+    pub fn get_total_supply(env: Env) -> Option<u64> {
+        TokenStorage::new(&env).total_supply.get()
     }
 }
 ```
 
-- **auto_shorten**: Automatically assigns short prefixes (e.g., "B" for balances) to minimize key size. For composite keys >32 bytes, hashes to `BytesN<32>`.
-- **short_key**: Override with a custom short prefix, e.g., `#[short_key = "bal"] balances: PersistentMap<Address, u64>`.
+By default, this generates readable "DataKey-style" storage keys:
+- Map entry for `balances`: `Vec[Symbol("Balances"), Address]`
+- Item key for `total_supply`: `Symbol("TotalSupply")`
 
-#### Symbolic Keys
+#### Key Optimization Modes
 
-By default, `auto_shorten` uses hashed keys (`Bytes` or `BytesN<32>`) for optimal compactness. For more readable keys during development or debugging, use the `symbolic` option:
+The macro supports several modes for optimizing storage keys to minimize ledger footprint:
+
+##### 1. Auto-Shorten (Recommended for Production)
+
+Use `auto_shorten = true` to automatically generate compact key prefixes:
+
+```rust
+#[contractstorage(auto_shorten = true)]
+pub struct TokenStorage {
+    balances: PersistentMap<Address, u64>,      // Prefix: "B"
+    allowances: PersistentMap<(Address, Address), u64>, // Prefix: "A"
+    total_supply: PersistentItem<u64>,          // Key: "T"
+}
+```
+
+- Field names are shortened to their first letter (with collision avoidance)
+- Map keys are hashed to `BytesN<32>` when composite key exceeds 32 bytes
+- Item keys use short `Bytes` (1-3 bytes)
+- **~30-40% storage savings** compared to symbolic keys
+
+Generated accessor methods when using `auto_shorten`:
+
+```rust
+impl TokenStorage {
+    pub fn balances(&self) -> &PersistentMap<Address, u64> { &self.balances }
+    pub fn total_supply(&self) -> &PersistentItem<u64> { &self.total_supply }
+}
+```
+
+##### 2. Custom Short Keys
+
+Override automatic prefixes with `#[short_key]` for upgrade safety:
+
+```rust
+#[contractstorage(auto_shorten = true)]
+pub struct TokenStorage {
+    #[short_key = "bal"]
+    balances: PersistentMap<Address, u64>,  // Prefix: "bal" (won't change if field renamed)
+    
+    #[short_key = "ts"]
+    total_supply: PersistentItem<u64>,      // Key: "ts"
+}
+```
+
+Use this when you need to ensure keys remain stable across field renames.
+
+##### 3. Symbolic Keys (Development/Debugging)
+
+Add `symbolic = true` for human-readable keys during development:
 
 ```rust
 #[contractstorage(auto_shorten = true, symbolic = true)]
 pub struct TokenStorage {
-    balances: PersistentMap<Address, u64>,  // Stored as Vec[Symbol("Ba"), Address]
-    total: PersistentItem<u64>,             // Stored as Symbol("T")
+    balances: PersistentMap<Address, u64>,  // Key: Vec[Symbol("B"), Address]
+    total_supply: PersistentItem<u64>,      // Key: Symbol("T")
 }
 ```
 
-With `symbolic = true`:
-- **Map keys**: `Vec[Symbol("ShortPrefix"), key_value]` instead of hashed `BytesN<32>`
-- **Item keys**: `Symbol("ShortPrefix")` instead of short `Bytes`
+Symbolic keys are easier to inspect in ledger debugging tools but use more storage.
 
-This makes keys human-readable in ledger inspection tools, at the cost of slightly larger keys for maps.
+##### 4. Field-Level Overrides
 
-You can also apply `#[symbolic]` to individual fields to override the struct-level behavior:
+Mix modes by applying `#[symbolic]` to specific fields:
 
 ```rust
 #[contractstorage(auto_shorten = true)]
-pub struct MixedStorage {
+pub struct TokenStorage {
     #[symbolic]
-    readable: PersistentMap<Address, u64>,  // Uses Vec[Symbol(...), Address]
-    optimized: PersistentMap<Address, u64>, // Uses hashed BytesN<32>
+    balances: PersistentMap<Address, u64>,      // Readable: Vec[Symbol("B"), Address]
+    
+    allowances: PersistentMap<(Address, Address), u64>, // Optimized: BytesN<32>
 }
 ```
 
-**When to use symbolic keys:**
-- Development and debugging for easier inspection
-- Contracts where key readability outweighs storage optimization
-- Testing scenarios where you need to verify specific key formats
+#### Storage Key Modes Reference
 
-**When to use hashed keys (default):**
-- Production contracts prioritizing minimal ledger footprint (~30% key size reduction)
-- High-frequency storage operations
-- Contracts with many storage fields
+The following table shows how different attribute combinations affect key generation:
+
+| Mode | Field Declaration | Map Key Format | Item Key Format | Key Size | Use Case |
+|------|------------------|----------------|-----------------|----------|----------|
+| **Default** | `balances: PersistentMap<Address, u64>` | `Vec[Symbol("Balances"), Address]` | `Symbol("Balances")` | Medium | Readable keys, traditional pattern |
+| **Default + short_key** | `#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("Bal"), Address]` | `Symbol("Bal")` | Medium | Custom readable keys |
+| **auto_shorten** | `#[contractstorage(auto_shorten = true)]`<br/>`balances: PersistentMap<Address, u64>` | `BytesN<32>` (hash of `"B" + Address`) | `Bytes("B")` | **Smallest** | 🏆 Production, minimal footprint |
+| **auto_shorten + short_key** | `#[contractstorage(auto_shorten = true)]`<br/>`#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `BytesN<32>` (hash of `"bal" + Address`) | `Bytes("bal")` | Small | Upgrade-safe custom prefix |
+| **auto_shorten + symbolic** | `#[contractstorage(auto_shorten = true, symbolic = true)]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("B"), Address]` | `Symbol("B")` | Medium | Development, readable short keys |
+| **auto_shorten + symbolic + short_key** | `#[contractstorage(auto_shorten = true, symbolic = true)]`<br/>`#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("Bal"), Address]` | `Symbol("Bal")` | Medium | Custom readable short keys |
+| **Field-level #[symbolic]** | `#[contractstorage(auto_shorten = true)]`<br/>`#[symbolic]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("B"), Address]` | `Symbol("B")` | Medium | Mixed: readable specific fields |
+
+**Key Size Comparison:**
+- **Smallest**: `BytesN<32>` for maps (32 bytes), `Bytes` for items (1-3 bytes) - **Production Recommended**
+- **Small**: `Bytes` for short prefixed items (2-4 bytes)
+- **Medium**: `Vec[Symbol, Key]` for maps (~40-50 bytes), `Symbol` for items (~10-20 bytes)
+
+**Choosing a Mode:**
+
+1. **Production contracts** 🏆: Use `auto_shorten = true` for ~30-40% storage savings
+2. **Upgrade-safe contracts**: Use `auto_shorten = true` with explicit `#[short_key = "..."]`
+3. **Development/debugging** 🔍: Add `symbolic = true` to make keys human-readable
+4. **Traditional pattern**: Use default mode (no auto_shorten) for DataKey enum compatibility
+5. **Mixed requirements**: Use `auto_shorten = true` with field-level `#[symbolic]` for specific readable fields
 
 #### Key View Methods
 
@@ -114,18 +203,8 @@ Generated methods like `get_storage_<field>_key` allow inspecting the underlying
 ```rust
 let storage = TokenStorage::new(&env);
 let key = storage.get_storage_balances_key(addr.clone());
+// Use this key with env.storage() directly if needed
 ```
-
-#### Storage Types
-
-- `PersistentMap<K, V>`: Long-term storage.
-- `InstanceMap<K, V>`: Per-instance data.
-- `TemporaryMap<K, V>`: Ephemeral data.
-- Single-value variants: `PersistentItem<V>`, etc.
-
-Operations include `get`, `set`, `has`, `remove`, `extend_ttl`, and `update`.
-
-For more examples, see the [tests](tests/) directory, which covers numeric keys, tuples, auto-shortening, symbolic modes, and DataKey-style patterns.
 
 ### Error Handling
 
