@@ -250,7 +250,7 @@ pub enum AppError {
 
 // Direct call uses transparent variant
 pub fn direct_calc(x: i64, y: i64) -> Result<i64, AppError> {
-    Math::divide(x, y)?  // Converts to MathDirect
+    Ok(Math::divide(x, y)? ) // Converts to MathDirect
 }
 
 // Cross-contract call uses from_contract_client variant
