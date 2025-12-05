@@ -18,25 +18,17 @@ pub trait ContractError: Sized {
     fn description(&self) -> &'static str;
 }
 
-/// Trait for converting errors from contract clients
-pub trait FromContractError<E> {
-    /// Convert from a contract client error
-    fn from_contract_error(error: E) -> Self;
-}
-
-// TODO: Implement helper macros/functions for error handling
-// - panic_with_context!() wrapper
-// - Result type aliases
-// - Conversion utilities
-
 /// Helper to panic with an error and optional context
 #[macro_export]
 macro_rules! panic_with_error {
-    ($env:expr, $error:expr) => {
-        $env.panic_with_error($error)
-    };
+    ($env:expr, $error:expr) => {{
+        let env: &soroban_sdk::Env = $env;
+        env.panic_with_error($error)
+    }};
     ($env:expr, $error:expr, $msg:literal) => {{
-        // TODO: Log message before panicking
-        $env.panic_with_error($error)
+        let env: &soroban_sdk::Env = $env;
+        // In the future we could log `$msg` via events or debug logging
+        let _ = $msg;
+        env.panic_with_error($error)
     }};
 }
