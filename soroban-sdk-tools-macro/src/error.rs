@@ -25,9 +25,10 @@ use crate::util::{collect_results, combine_errors};
 // -----------------------------------------------------------------------------
 
 const ROOT_BITS: u32 = 8;
+const ROOT_MAX: u32 = (1 << ROOT_BITS) - 1;
 const INNER_BITS: u32 = 24;
 const INNER_MASK: u32 = (1 << INNER_BITS) - 1; // 0x00FFFFFF
-                                               // Ensure we don't return 0 from hashes, as 0 is reserved for Abort/System
+// Ensure we don't return 0 from hashes, as 0 is reserved for Abort/System
 const HASH_SEED: u32 = 5381;
 
 // -----------------------------------------------------------------------------
@@ -357,7 +358,6 @@ fn assign_codes(data: &DataEnum, enum_ident: &Ident, mode: ScerrMode) -> syn::Re
         ScerrMode::Basic => 0,
     };
     let mut used_codes: HashMap<u32, String> = HashMap::new();
-    let root_max: u32 = (1 << ROOT_BITS) - 1;
 
     data.variants.iter().map(|variant| {
         let code = if let Some((_, expr)) = &variant.discriminant {
@@ -390,13 +390,13 @@ fn assign_codes(data: &DataEnum, enum_ident: &Ident, mode: ScerrMode) -> syn::Re
                     "Error code 0 is reserved for system errors. Root mode variants must use codes 1-255."
                 ));
             }
-            if code > root_max {
+            if code > ROOT_MAX {
                 return Err(Error::new(
                     variant.span(),
                     format!(
                         "Root mode error variant index {} exceeds maximum of {} ({}-bit limit). \
                         Consider splitting into multiple error enums or reducing variant count.",
-                        code, root_max, ROOT_BITS
+                        code, ROOT_MAX, ROOT_BITS
                     )
                 ));
             }
