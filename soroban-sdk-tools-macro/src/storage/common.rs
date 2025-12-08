@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::util::TypeExt;
+use crate::util::{combine_errors, TypeExt};
 use darling::FromMeta;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use quote::{format_ident, quote};
@@ -79,17 +79,6 @@ pub fn generate_item_key_wrapper(
             }
         }
     }
-}
-
-/// Combine multiple `syn::Error` instances into a single error
-pub fn combine_errors(errors: Vec<Error>) -> Error {
-    errors
-        .into_iter()
-        .reduce(|mut a, b| {
-            a.combine(b);
-            a
-        })
-        .expect("At least one error expected")
 }
 
 // Helper to collect results while aggregating errors

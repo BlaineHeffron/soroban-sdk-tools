@@ -37,6 +37,17 @@ pub trait TypeExt {
     fn validate_storage_type(&self) -> syn::Result<()>;
 }
 
+/// Combine multiple `syn::Error` instances into a single error
+pub fn combine_errors(errors: Vec<Error>) -> Error {
+    errors
+        .into_iter()
+        .reduce(|mut a, b| {
+            a.combine(b);
+            a
+        })
+        .expect("At least one error expected")
+}
+
 impl TypeExt for Type {
     fn get_type_name(&self) -> Option<String> {
         if let Type::Path(type_path) = self {

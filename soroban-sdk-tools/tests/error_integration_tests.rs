@@ -182,10 +182,6 @@ fn setup_math_contract(env: &Env) -> Address {
     env.register(Math, ())
 }
 
-fn setup_calc_contract(env: &Env) -> Address {
-    env.register(Calc, ())
-}
-
 fn setup_logic_contract(env: &Env) -> Address {
     env.register(Logic, ())
 }
@@ -368,8 +364,6 @@ pub enum InnerRootError {
     InnerUnauthorized,
     #[description = "inner invalid state"]
     InnerInvalidState,
-    #[from_abort_error]
-    Abort,
 }
 
 #[contract]
@@ -433,21 +427,12 @@ fn root_to_root_collision_via_from_contract_client() {
 
     let outer_client = OuterRootClient::new(&env, &outer_id);
 
-    // InnerRootError::InnerUnauthorized has code 1 (first variant in root mode)
-    // OuterRootError::OuterUnauthorized also has code 1 (first variant in root mode)
-    // When the error comes back from inner contract with code 1,
-    // OuterRootError will incorrectly decode it as OuterUnauthorized
-    // instead of Inner(InnerUnauthorized)
-
     let result = outer_client.try_call_inner(&inner_id);
     assert!(result.is_err());
 
     let err = result.err().unwrap();
     let decoded: OuterRootError = err.expect("no invoke error");
 
-    // BUG: This will likely fail because of code collision
-    // We expect Inner(InnerUnauthorized) but might get OuterUnauthorized
-    // because both have code 1
     println!("DEBUG root_to_root_collision:");
     println!("  Decoded error: {:?}", decoded);
     println!("  Error code: {}", decoded.into_code());
@@ -465,8 +450,6 @@ fn root_to_root_collision_via_from_contract_client() {
         OuterRootError::Inner(InnerRootError::InnerUnauthorized).into_code()
     );
 
-    // This assertion demonstrates the collision problem:
-    // Both root enums start their indices at 1, causing code collision
     assert_eq!(
         decoded,
         OuterRootError::Inner(InnerRootError::InnerUnauthorized)
@@ -481,19 +464,12 @@ fn root_to_root_collision_second_variant() {
 
     let outer_client = OuterRootClient::new(&env, &outer_id);
 
-    // Test with the second variant
-    // InnerRootError::InnerInvalidState has code 2 (second variant in root mode)
-    // If OuterRootError has a second unit variant, it would also have code 2
-    // This creates a collision where the outer enum can't distinguish between
-    // its own second variant and Inner(InnerInvalidState)
-
     let result = outer_client.try_call_inner_invalid(&inner_id);
     assert!(result.is_err());
 
     let err = result.err().unwrap();
     let decoded: OuterRootError = err.expect("no invoke error");
 
-    // BUG DEMONSTRATION: Code collision with second variant
     println!("DEBUG root_to_root_collision_second_variant:");
     println!("  Decoded error: {:?}", decoded);
     println!("  Error code: {}", decoded.into_code());
@@ -507,8 +483,6 @@ fn root_to_root_collision_second_variant() {
         OuterRootError::Inner(InnerRootError::InnerInvalidState).into_code()
     );
 
-    // The outer enum should decode this as Inner(InnerInvalidState)
-    // but if it has its own unit variant at code 2, it might match that first
     assert_eq!(
         decoded,
         OuterRootError::Inner(InnerRootError::InnerInvalidState)
@@ -672,6 +646,4 @@ fn from_code_doesnt_match_wrong_namespace() {
     let decoded_2 = OuterRootError::from_code(code_2);
     println!("  Trying to decode code 2: {:?}", decoded_2);
 
-    // This would be a collision if it decodes as Inner(InnerInvalidState)
-    // because InnerRootError::InnerInvalidState also has code 2
 }

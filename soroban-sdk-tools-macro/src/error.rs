@@ -18,6 +18,8 @@ use syn::{
 use std::collections::HashMap;
 use darling::{ast::NestedMeta, FromMeta};
 
+use crate::util::combine_errors;
+
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
@@ -290,11 +292,11 @@ fn validate_variants(infos: &[VariantInfo], mode: ScerrMode) -> syn::Result<()> 
     // However, if the user WANTS to handle invoke errors, they need at least one FCC or Abort handler.
     // If they just have transparent mappings, that's valid too (just remapping specific codes).
 
-    if let Some(combined_error) = errors.into_iter().reduce(|mut a, b| { a.combine(b); a }) {
-        Err(combined_error)
-    } else {
-        Ok(())
+    if !errors.is_empty() {
+        return Err(combine_errors(errors));
     }
+
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
