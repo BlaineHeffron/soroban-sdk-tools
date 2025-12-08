@@ -48,6 +48,27 @@ pub fn combine_errors(errors: Vec<Error>) -> Error {
         .expect("At least one error expected")
 }
 
+/// Helper to collect results while aggregating errors.
+pub fn collect_results<T>(
+    results: impl IntoIterator<Item = syn::Result<T>>,
+) -> syn::Result<Vec<T>> {
+    let mut oks = Vec::new();
+    let mut errs: Vec<Error> = Vec::new();
+
+    for r in results {
+        match r {
+            Ok(v) => oks.push(v),
+            Err(e) => errs.push(e),
+        }
+    }
+
+    if errs.is_empty() {
+        Ok(oks)
+    } else {
+        Err(combine_errors(errs))
+    }
+}
+
 impl TypeExt for Type {
     fn get_type_name(&self) -> Option<String> {
         if let Type::Path(type_path) = self {

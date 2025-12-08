@@ -645,5 +645,4 @@ fn from_code_doesnt_match_wrong_namespace() {
     let code_2 = 2u32;
     let decoded_2 = OuterRootError::from_code(code_2);
     println!("  Trying to decode code 2: {:?}", decoded_2);
-
 }
