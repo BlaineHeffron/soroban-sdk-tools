@@ -28,6 +28,7 @@ const ROOT_BITS: u32 = 8;
 const ROOT_MAX: u32 = (1 << ROOT_BITS) - 1;
 const INNER_BITS: u32 = 24;
 const INNER_MASK: u32 = (1 << INNER_BITS) - 1; // 0x00FFFFFF
+
 // Ensure we don't return 0 from hashes, as 0 is reserved for Abort/System
 const HASH_SEED: u32 = 5381;
 
