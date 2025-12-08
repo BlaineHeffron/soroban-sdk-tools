@@ -875,32 +875,31 @@ pub fn scerr_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let input = parse_macro_input!(item as DeriveInput);
+
+    match expand_scerr(mode, input) {
+        Ok(ts) => TokenStream::from(ts),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+fn expand_scerr(mode: ScerrMode, input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let data_enum = match &input.data {
         Data::Enum(e) => e,
         _ => {
-            return Error::new(input.ident.span(), "#[scerr] only supported on enums")
-                .to_compile_error()
-                .into()
+            return Err(Error::new(
+                input.ident.span(),
+                "#[scerr] only supported on enums",
+            ))
         }
     };
 
-    let infos = match collect_variant_infos(data_enum, &input.ident, mode) {
-        Ok(i) => i,
-        Err(e) => return e.to_compile_error().into(),
-    };
+    let infos = collect_variant_infos(data_enum, &input.ident, mode)?;
 
-    if let Err(e) = validate_variants(&infos, mode) {
-        return e.to_compile_error().into();
-    }
+    validate_variants(&infos, mode)?;
 
-    let expanded = match mode {
+    match mode {
         ScerrMode::Basic => expand_scerr_basic(&input, &infos),
         ScerrMode::Root => expand_scerr_root(&input, &infos),
-    };
-
-    match expanded {
-        Ok(ts) => TokenStream::from(ts),
-        Err(e) => e.to_compile_error().into(),
     }
 }
 
