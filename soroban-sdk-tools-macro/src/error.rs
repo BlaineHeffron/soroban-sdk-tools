@@ -4,18 +4,57 @@
 //! which generate error enums with unique u32 codes, conversion traits, and composable
 //! error handling.
 //!
+//! ## Usage
+//!
+//! ### Basic Mode
+//!
+//! ```rust,ignore
+//! use soroban_sdk_tools::scerr;
+//!
+//! #[scerr]
+//! pub enum TokenError {
+//!     #[description = "insufficient balance for transfer"]
+//!     InsufficientBalance,
+//!     Unauthorized,
+//!     InvalidAmount,
+//! }
+//! ```
+//!
+//! ### Root Mode
+//!
+//! ```rust,ignore
+//! #[scerr(mode="root")]
+//! pub enum AppError {
+//!     Unauthorized,
+//!     #[transparent]
+//!     Math(#[from] MathError),
+//!     #[from_contract_client]
+//!     ExternalMath(MathError),
+//!     #[abort]
+//!     Aborted,
+//!     #[sentinel]
+//!     Unknown,
+//! }
+//! ```
+//!
+//! ### Options
+//!
+//! - `handle_abort = "auto" | "panic"`: Auto-add Aborted variant or panic on abort.
+//! - `handle_unknown = "auto" | "panic"`: Auto-add UnknownError variant or panic on unknown codes.
+//! - `log_unknown_errors = true`: Log unknown error codes (requires sentinel).
+//!
 //! Architecture:
 //! - 24/8 Split: Root enums use the top 8 bits (indices 1..255) to namespace sub-modules.
 //!   Inner errors use the lower 24 bits.
 //! - Code 0 is reserved. Hashes ensure generated codes are never 0.
 
-use darling::{ast::NestedMeta, FromMeta};
+use darling::FromMeta;
 use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::{HashMap, HashSet};
 use syn::{
-    parse_macro_input, spanned::Spanned, Attribute, Data, DataEnum, DeriveInput, Error, Expr,
-    ExprLit, Fields, Ident, Lit, Meta, Type, Variant,
+    parse_macro_input, parse_quote, spanned::Spanned, Attribute, Data, DataEnum, DeriveInput,
+    Error, Expr, ExprLit, Fields, Ident, Lit, Type, Variant,
 };
 
 use crate::util::{collect_results, combine_errors};
@@ -43,74 +82,50 @@ enum ScerrMode {
     Root,
 }
 
-#[derive(Debug, Default)]
-struct ScerrModeDarling(ScerrMode);
+#[derive(Debug, Default, FromMeta)]
+struct ScerrConfig {
+    #[darling(default)]
+    mode: Option<String>,
 
-impl FromMeta for ScerrModeDarling {
-    fn from_word() -> darling::Result<Self> {
-        Ok(Self(ScerrMode::Basic))
-    }
+    #[darling(default)]
+    handle_abort: Option<String>,
 
-    fn from_value(value: &Lit) -> darling::Result<Self> {
-        match value {
-            Lit::Str(s) => match s.value().as_str() {
-                "root" => Ok(Self(ScerrMode::Root)),
-                "basic" => Ok(Self(ScerrMode::Basic)),
-                other => Err(darling::Error::unknown_value(other)),
-            },
-            _ => Err(darling::Error::unexpected_lit_type(value)),
-        }
-    }
+    #[darling(default)]
+    handle_unknown: Option<String>,
 
-    fn from_list(items: &[NestedMeta]) -> darling::Result<Self> {
-        let mut mode = ScerrMode::Basic;
-        for item in items {
-            match item {
-                NestedMeta::Meta(Meta::Path(p)) if p.is_ident("root") => {
-                    mode = ScerrMode::Root;
-                }
-                NestedMeta::Meta(Meta::NameValue(nv)) if nv.path.is_ident("mode") => {
-                    mode = match &nv.value {
-                        Expr::Lit(ExprLit {
-                            lit: Lit::Str(s), ..
-                        }) => match s.value().as_str() {
-                            "root" => ScerrMode::Root,
-                            "basic" => ScerrMode::Basic,
-                            other => return Err(darling::Error::unknown_value(other)),
-                        },
-                        _ => {
-                            return Err(darling::Error::custom("mode must be a string literal")
-                                .with_span(&nv.value))
-                        }
-                    }
-                }
-                other => {
-                    return Err(darling::Error::custom("Unsupported #[scerr(...)] argument")
-                        .with_span(other))
-                }
-            }
-        }
-        Ok(Self(mode))
-    }
+    #[darling(default)]
+    log_unknown_errors: bool,
 }
 
-/// Parse the #[scerr(...)] attribute to determine the mode.
-fn parse_scerr_attr(attr: TokenStream) -> syn::Result<ScerrMode> {
+/// Parse the #[scerr(...)] attribute to determine the config.
+fn parse_scerr_attr(attr: TokenStream) -> syn::Result<(ScerrMode, ScerrConfig)> {
     let ts2 = proc_macro2::TokenStream::from(attr);
     if ts2.is_empty() {
-        return Ok(ScerrMode::Basic);
+        return Ok((ScerrMode::Basic, ScerrConfig::default()));
     }
     let meta_items = darling::ast::NestedMeta::parse_meta_list(ts2)
         .map_err(|e| Error::new(proc_macro2::Span::call_site(), e.to_string()))?;
-    let mode_darling = ScerrModeDarling::from_list(&meta_items)
-        .map_err(|e| Error::new(e.span(), e.to_string()))?;
-    Ok(mode_darling.0)
+    let config =
+        ScerrConfig::from_list(&meta_items).map_err(|e| Error::new(e.span(), e.to_string()))?;
+    let mode = match config.mode.as_deref() {
+        None | Some("basic") => ScerrMode::Basic,
+        Some("root") => ScerrMode::Root,
+        Some(other) => {
+            return Err(Error::new(
+                proc_macro2::Span::call_site(),
+                format!("unknown mode: {}", other),
+            ))
+        }
+    };
+    Ok((mode, config))
 }
 
 /// Parse the #[description(...)] attribute from a list of attributes.
 fn parse_description_attr(attrs: &[Attribute]) -> Option<String> {
-    for attr in attrs {
-        if attr.path().is_ident("description") {
+    attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("description"))
+        .and_then(|attr| {
             if let Ok(meta_nv) = attr.meta.require_name_value() {
                 if let Expr::Lit(ExprLit {
                     lit: Lit::Str(s), ..
@@ -121,9 +136,8 @@ fn parse_description_attr(attrs: &[Attribute]) -> Option<String> {
             } else if let Ok(tokens) = attr.parse_args::<syn::LitStr>() {
                 return Some(tokens.value());
             }
-        }
-    }
-    None
+            None
+        })
 }
 
 // -----------------------------------------------------------------------------
@@ -145,17 +159,27 @@ fn hash_variant(s: &str) -> u32 {
 }
 
 /// The kind of variant behavior.
+///
+/// # Variant Types
+///
+/// - `PlainUnit`: Simple unit variant for contract-specific errors
+/// - `AbortUnit`: Unit variant marked with `#[abort]`, catches InvokeError::Abort
+/// - `Sentinel`: Variant marked with `#[sentinel]`, catches unknown error codes
+///   - Can optionally store the unknown code: `Sentinel { stores_code: true }`
+/// - `Transparent`: Wraps another error type for in-process propagation via `?`
+/// - `FromContractClient`: Wraps another error type for cross-contract error decoding
 #[derive(Debug)]
 enum VariantKind {
-    /// Plain unit variant, optionally handles abort errors.
-    Unit { from_abort: bool },
-    /// Non-unit variant that transparently wraps another error type.
+    PlainUnit,
+    AbortUnit,
+    Sentinel {
+        stores_code: bool,
+    },
     Transparent {
         field_ty: Type,
         field_ident: Option<Ident>,
         has_from: bool,
     },
-    /// Non-unit variant that handles cross-contract errors.
     FromContractClient {
         field_ty: Type,
         field_ident: Option<Ident>,
@@ -165,39 +189,51 @@ enum VariantKind {
 
 /// Information about a variant in the error enum.
 #[derive(Debug)]
-struct VariantInfo<'a> {
-    ident: &'a Ident,
+struct VariantInfo {
+    ident: Ident,
     code: u32,
-    variant: &'a Variant,
     description: String,
     kind: VariantKind,
 }
 
-impl<'a> VariantInfo<'a> {
+impl VariantInfo {
+    fn is_from_abort(&self) -> bool {
+        matches!(&self.kind, VariantKind::AbortUnit)
+    }
+
+    fn is_sentinel(&self) -> bool {
+        matches!(&self.kind, VariantKind::Sentinel { .. })
+    }
+
+    fn stores_code(&self) -> bool {
+        matches!(&self.kind, VariantKind::Sentinel { stores_code: true })
+    }
+
     /// Returns the field type if this is a non-unit variant.
-    fn field_ty(&self) -> Option<&Type> {
+    fn field_ty(&self) -> Option<Type> {
         match &self.kind {
-            VariantKind::Unit { .. } => None,
             VariantKind::Transparent { field_ty, .. }
-            | VariantKind::FromContractClient { field_ty, .. } => Some(field_ty),
+            | VariantKind::FromContractClient { field_ty, .. } => Some(field_ty.clone()),
+            VariantKind::Sentinel { stores_code: true } => Some(parse_quote!(u32)),
+            _ => None,
         }
     }
 
     /// Returns the field identifier if this is a named-field variant.
-    fn field_ident(&self) -> Option<&Ident> {
+    fn field_ident(&self) -> Option<Ident> {
         match &self.kind {
-            VariantKind::Unit { .. } => None,
             VariantKind::Transparent { field_ident, .. }
-            | VariantKind::FromContractClient { field_ident, .. } => field_ident.as_ref(),
+            | VariantKind::FromContractClient { field_ident, .. } => field_ident.clone(),
+            _ => None,
         }
     }
 
     /// Returns true if this variant has a #[from] attribute on its field.
     fn has_from(&self) -> bool {
         match &self.kind {
-            VariantKind::Unit { .. } => false,
             VariantKind::Transparent { has_from, .. }
             | VariantKind::FromContractClient { has_from, .. } => *has_from,
+            _ => false,
         }
     }
 
@@ -205,14 +241,8 @@ impl<'a> VariantInfo<'a> {
     fn is_fcc(&self) -> bool {
         matches!(&self.kind, VariantKind::FromContractClient { .. })
     }
-
-    /// Returns true if this is a unit variant that handles abort errors.
-    fn is_from_abort(&self) -> bool {
-        matches!(&self.kind, VariantKind::Unit { from_abort: true })
-    }
 }
 
-/// Darling-based attribute parsing for variant-level attributes.
 #[derive(Debug, Default, FromMeta)]
 struct VariantAttrs {
     #[darling(default)]
@@ -220,7 +250,9 @@ struct VariantAttrs {
     #[darling(default)]
     from_contract_client: bool,
     #[darling(default)]
-    from_abort_error: bool,
+    abort: bool,
+    #[darling(default)]
+    sentinel: bool,
 }
 
 /// Parse field-level #[from] attribute.
@@ -228,7 +260,7 @@ fn has_from_attr(field: &syn::Field) -> bool {
     field.attrs.iter().any(|a| a.path().is_ident("from"))
 }
 
-/// Parse attributes for a single variant.
+/// Parse attributes for a single variant into VariantAttrs.
 fn parse_variant_attrs(variant: &Variant) -> syn::Result<VariantAttrs> {
     let mut attrs = VariantAttrs::default();
 
@@ -237,30 +269,113 @@ fn parse_variant_attrs(variant: &Variant) -> syn::Result<VariantAttrs> {
             attrs.transparent = true;
         } else if attr.path().is_ident("from_contract_client") {
             attrs.from_contract_client = true;
-        } else if attr.path().is_ident("from_abort_error") {
-            attrs.from_abort_error = true;
+        } else if attr.path().is_ident("abort") {
+            attrs.abort = true;
+        } else if attr.path().is_ident("sentinel") {
+            attrs.sentinel = true;
         }
     }
 
     Ok(attrs)
 }
 
-/// Parse a single variant into `VariantInfo`.
-fn parse_variant_info<'a>(variant: &'a Variant, code: u32) -> syn::Result<VariantInfo<'a>> {
-    let ident = &variant.ident;
-    let description = parse_description_attr(&variant.attrs).unwrap_or_else(|| ident.to_string());
+/// Validate that variant attributes are mutually exclusive.
+fn validate_variant_attrs(attrs: &VariantAttrs, variant: &Variant) -> syn::Result<()> {
+    let count = [
+        attrs.transparent,
+        attrs.from_contract_client,
+        attrs.abort,
+        attrs.sentinel,
+    ]
+    .iter()
+    .filter(|&&b| b)
+    .count();
 
-    let attrs = parse_variant_attrs(variant)?;
+    if count > 1 {
+        Err(Error::new(
+            variant.span(),
+            "Variant attributes are mutually exclusive",
+        ))
+    } else {
+        Ok(())
+    }
+}
 
-    // Check mutual exclusivity
-    if attrs.transparent && attrs.from_contract_client {
+/// Determine the VariantKind for unit variants.
+fn determine_unit_kind(attrs: &VariantAttrs) -> VariantKind {
+    if attrs.abort {
+        VariantKind::AbortUnit
+    } else if attrs.sentinel {
+        VariantKind::Sentinel { stores_code: false }
+    } else {
+        VariantKind::PlainUnit
+    }
+}
+
+/// Determine the VariantKind for single-field variants.
+fn determine_single_field_kind(
+    attrs: &VariantAttrs,
+    field: &syn::Field,
+    variant: &Variant,
+) -> syn::Result<VariantKind> {
+    if attrs.abort || attrs.sentinel {
         return Err(Error::new(
             variant.span(),
-            "Variant cannot have both #[transparent] and #[from_contract_client]",
+            "#[abort] or #[sentinel] with fields - see rules",
         ));
     }
 
-    let kind = match &variant.fields {
+    let field_ty = field.ty.clone();
+    let field_ident = field.ident.clone();
+    let has_from = has_from_attr(field);
+
+    if attrs.transparent {
+        Ok(VariantKind::Transparent {
+            field_ty,
+            field_ident,
+            has_from,
+        })
+    } else if attrs.from_contract_client {
+        Ok(VariantKind::FromContractClient {
+            field_ty,
+            field_ident,
+            has_from,
+        })
+    } else {
+        Err(Error::new(
+            variant.span(),
+            "Non-unit variants must have #[transparent] or #[from_contract_client]",
+        ))
+    }
+}
+
+/// Determine the VariantKind for sentinel variants with fields.
+fn determine_sentinel_with_field_kind(
+    fields: &Fields,
+    variant: &Variant,
+) -> syn::Result<VariantKind> {
+    if let Fields::Unnamed(fields_unnamed) = fields {
+        if fields_unnamed.unnamed.len() == 1 {
+            let field = &fields_unnamed.unnamed[0];
+            if quote!(#(&field.ty)).to_string() == "u32" {
+                return Ok(VariantKind::Sentinel { stores_code: true });
+            } else {
+                return Err(Error::new(
+                    field.span(),
+                    "#[sentinel] field must be u32 for storing code",
+                ));
+            }
+        }
+    }
+    Err(Error::new(
+        variant.span(),
+        "#[sentinel] must be unit or unnamed (u32)",
+    ))
+}
+
+/// Determine the VariantKind based on fields and attributes.
+fn determine_variant_kind(variant: &Variant, attrs: &VariantAttrs) -> syn::Result<VariantKind> {
+    match &variant.fields {
         Fields::Unit => {
             if attrs.transparent || attrs.from_contract_client {
                 return Err(Error::new(
@@ -268,88 +383,117 @@ fn parse_variant_info<'a>(variant: &'a Variant, code: u32) -> syn::Result<Varian
                     "Unit variants cannot have #[transparent] or #[from_contract_client]",
                 ));
             }
-            VariantKind::Unit {
-                from_abort: attrs.from_abort_error,
-            }
+            Ok(determine_unit_kind(attrs))
         }
         Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-            if attrs.from_abort_error {
-                return Err(Error::new(
-                    variant.span(),
-                    "#[from_abort_error] only allowed on unit variants",
-                ));
-            }
-
             let field = &fields.unnamed[0];
-            let field_ty = field.ty.clone();
-            let has_from = has_from_attr(field);
-
-            if attrs.transparent {
-                VariantKind::Transparent {
-                    field_ty,
-                    field_ident: None,
-                    has_from,
-                }
-            } else if attrs.from_contract_client {
-                VariantKind::FromContractClient {
-                    field_ty,
-                    field_ident: None,
-                    has_from,
-                }
-            } else {
-                return Err(Error::new(
-                    variant.span(),
-                    "Non-unit variants must have #[transparent] or #[from_contract_client]",
-                ));
-            }
+            determine_single_field_kind(attrs, field, variant)
         }
         Fields::Named(fields) if fields.named.len() == 1 => {
-            if attrs.from_abort_error {
-                return Err(Error::new(
-                    variant.span(),
-                    "#[from_abort_error] only allowed on unit variants",
-                ));
-            }
-
             let field = fields.named.iter().next().unwrap();
-            let field_ty = field.ty.clone();
-            let field_ident = field.ident.clone();
-            let has_from = has_from_attr(field);
+            determine_single_field_kind(attrs, field, variant)
+        }
+        _ if attrs.sentinel => determine_sentinel_with_field_kind(&variant.fields, variant),
+        _ => Err(Error::new(
+            variant.span(),
+            "Unsupported variant type: must be unit or single-field",
+        )),
+    }
+}
 
-            if attrs.transparent {
-                VariantKind::Transparent {
-                    field_ty,
-                    field_ident,
-                    has_from,
-                }
-            } else if attrs.from_contract_client {
-                VariantKind::FromContractClient {
-                    field_ty,
-                    field_ident,
-                    has_from,
-                }
-            } else {
-                return Err(Error::new(
-                    variant.span(),
-                    "Non-unit variants must have #[transparent] or #[from_contract_client]",
-                ));
-            }
-        }
-        _ => {
-            return Err(Error::new(
-                variant.span(),
-                "Unsupported variant type: must be unit or single-field",
-            ))
-        }
-    };
+/// Parse a single variant into `VariantInfo`.
+fn parse_variant_info(variant: &Variant, code: u32) -> syn::Result<VariantInfo> {
+    let ident = variant.ident.clone();
+    let description = parse_description_attr(&variant.attrs).unwrap_or_else(|| ident.to_string());
+
+    let attrs = parse_variant_attrs(variant)?;
+    validate_variant_attrs(&attrs, variant)?;
+
+    let kind = determine_variant_kind(variant, &attrs)?;
 
     Ok(VariantInfo {
         ident,
         code,
-        variant,
         description,
         kind,
     })
+}
+
+/// Generate a code for a variant in root mode (sequential).
+fn generate_root_code(next_code: &mut u32, variant: &Variant) -> syn::Result<u32> {
+    let code = *next_code;
+    *next_code = next_code
+        .checked_add(1)
+        .ok_or_else(|| Error::new(variant.span(), "Too many error variants"))?;
+    Ok(code)
+}
+
+/// Generate a code for a variant in basic mode (hashed).
+fn generate_basic_code(enum_ident: &Ident, variant: &Variant) -> u32 {
+    let full_name = format!("{}::{}", enum_ident, variant.ident);
+    hash_variant(&full_name)
+}
+
+/// Parse an explicit discriminant if present.
+fn parse_explicit_discriminant(variant: &Variant) -> syn::Result<Option<u32>> {
+    if let Some((_, expr)) = &variant.discriminant {
+        if let Expr::Lit(ExprLit {
+            lit: Lit::Int(li), ..
+        }) = expr
+        {
+            li.base10_parse::<u32>().map(Some)
+        } else {
+            Err(Error::new(
+                expr.span(),
+                "Only integer literal discriminants supported",
+            ))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Validate a code in root mode.
+fn validate_root_code(code: u32, variant: &Variant) -> syn::Result<()> {
+    if code == 0 {
+        return Err(Error::new(
+            variant.span(),
+            "Error code 0 is reserved for system errors. Root mode variants must use codes 1-255.",
+        ));
+    }
+    if code > ROOT_MAX {
+        return Err(Error::new(
+            variant.span(),
+            format!(
+                "Root mode error variant index {} exceeds maximum of {} ({}-bit limit). \
+                Consider splitting into multiple error enums or reducing variant count.",
+                code, ROOT_MAX, ROOT_BITS
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Check for code collisions and track used codes.
+fn check_code_collision(
+    code: u32,
+    variant: &Variant,
+    used_codes: &mut HashMap<u32, String>,
+) -> syn::Result<()> {
+    if let Some(existing_variant) = used_codes.get(&code) {
+        let msg = format!(
+            "Error code collision: Variant '{}' (code {}) conflicts with '{}'. \
+            Please manually assign a unique discriminant (e.g., `{} = {}`) to resolve this.",
+            variant.ident,
+            code,
+            existing_variant,
+            variant.ident,
+            code + 1
+        );
+        return Err(Error::new(variant.span(), msg));
+    }
+    used_codes.insert(code, variant.ident.to_string());
+    Ok(())
 }
 
 /// Assign codes to variants and detect collisions.
@@ -360,70 +504,34 @@ fn assign_codes(data: &DataEnum, enum_ident: &Ident, mode: ScerrMode) -> syn::Re
     };
     let mut used_codes: HashMap<u32, String> = HashMap::new();
 
-    data.variants.iter().map(|variant| {
-        let code = if let Some((_, expr)) = &variant.discriminant {
-            if let Expr::Lit(ExprLit { lit: Lit::Int(li), .. }) = expr {
-                li.base10_parse::<u32>()?
-            } else {
-                return Err(Error::new(expr.span(), "Only integer literal discriminants supported"));
-            }
-        } else {
-            match mode {
-                ScerrMode::Root => {
-                    let c = next_code;
-                    next_code = next_code.checked_add(1).ok_or_else(|| {
-                        Error::new(variant.span(), "Too many error variants")
-                    })?;
-                    c
-                }
-                ScerrMode::Basic => {
-                    let full_name = format!("{}::{}", enum_ident, variant.ident);
-                    hash_variant(&full_name)
-                }
-            }
-        };
+    data.variants
+        .iter()
+        .map(|variant| {
+            let code = match parse_explicit_discriminant(variant)? {
+                Some(c) => c,
+                None => match mode {
+                    ScerrMode::Root => generate_root_code(&mut next_code, variant)?,
+                    ScerrMode::Basic => generate_basic_code(enum_ident, variant),
+                },
+            };
 
-        // Validate root mode limits
-        if mode == ScerrMode::Root {
-            if code == 0 {
-                return Err(Error::new(
-                    variant.span(),
-                    "Error code 0 is reserved for system errors. Root mode variants must use codes 1-255."
-                ));
+            if mode == ScerrMode::Root {
+                validate_root_code(code, variant)?;
             }
-            if code > ROOT_MAX {
-                return Err(Error::new(
-                    variant.span(),
-                    format!(
-                        "Root mode error variant index {} exceeds maximum of {} ({}-bit limit). \
-                        Consider splitting into multiple error enums or reducing variant count.",
-                        code, ROOT_MAX, ROOT_BITS
-                    )
-                ));
-            }
-        }
 
-        // Collision Check
-        if let Some(existing_variant) = used_codes.get(&code) {
-            let msg = format!(
-                "Error code collision: Variant '{}' (code {}) conflicts with '{}'. \
-                Please manually assign a unique discriminant (e.g., `{} = {}`) to resolve this.",
-                variant.ident, code, existing_variant, variant.ident, code + 1
-            );
-            return Err(Error::new(variant.span(), msg));
-        }
+            check_code_collision(code, variant, &mut used_codes)?;
 
-        used_codes.insert(code, variant.ident.to_string());
-        Ok(code)
-    }).collect()
+            Ok(code)
+        })
+        .collect()
 }
 
 /// Collect `VariantInfo` for all variants in the enum.
-fn collect_variant_infos<'a>(
-    data: &'a DataEnum,
-    enum_ident: &'a Ident,
+fn collect_variant_infos(
+    data: &DataEnum,
+    enum_ident: &Ident,
     mode: ScerrMode,
-) -> syn::Result<Vec<VariantInfo<'a>>> {
+) -> syn::Result<Vec<VariantInfo>> {
     let codes = assign_codes(data, enum_ident, mode)?;
     collect_results(
         data.variants
@@ -433,14 +541,33 @@ fn collect_variant_infos<'a>(
     )
 }
 
+/// Validate variants unique to root mode (at most one abort and one sentinel).
+fn validate_root_variants(infos: &[VariantInfo]) -> syn::Result<()> {
+    let abort_count = infos.iter().filter(|i| i.is_from_abort()).count();
+    if abort_count > 1 {
+        return Err(Error::new(
+            proc_macro2::Span::call_site(),
+            "Only one #[abort] variant allowed",
+        ));
+    }
+    let sentinel_count = infos.iter().filter(|i| i.is_sentinel()).count();
+    if sentinel_count > 1 {
+        return Err(Error::new(
+            proc_macro2::Span::call_site(),
+            "Only one #[sentinel] variant allowed",
+        ));
+    }
+    Ok(())
+}
+
 /// Validate all variants based on the mode.
 fn validate_variants(infos: &[VariantInfo], mode: ScerrMode) -> syn::Result<()> {
     let errors: Vec<Error> = infos
         .iter()
         .filter_map(|info| match (mode, &info.kind) {
-            (ScerrMode::Basic, VariantKind::Unit { .. }) => None,
+            (ScerrMode::Basic, VariantKind::PlainUnit) => None,
             (ScerrMode::Basic, _) => Some(Error::new(
-                info.variant.span(),
+                info.ident.span(),
                 "Non-unit variants not supported in basic mode. Use #[scerr(root)]",
             )),
             (ScerrMode::Root, _) => None,
@@ -472,7 +599,7 @@ fn generate_enum_def(
     let variants: Vec<_> = infos
         .iter()
         .map(|info| {
-            let ident = info.ident;
+            let ident = &info.ident;
             if let Some(ty) = info.field_ty() {
                 if let Some(field) = info.field_ident() {
                     quote! { #ident { #field: #ty } }
@@ -496,49 +623,76 @@ fn generate_enum_def(
 
 /// Generate match arms for `into_code` method in root mode.
 fn generate_into_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    let shift = INNER_BITS;
-    infos.iter().map(|info| {
-        let ident = info.ident;
-        let root_idx = info.code;
-        if let Some(field) = info.field_ident() {
-            quote! { Self::#ident { #field: inner } => (#root_idx << #shift) | inner.into_code() }
-        } else if info.field_ty().is_some() {
-            quote! { Self::#ident(inner) => (#root_idx << #shift) | inner.into_code() }
-        } else {
-            quote! { Self::#ident => #root_idx }
-        }
-    }).collect()
+    infos
+        .iter()
+        .map(|info| {
+            let ident = &info.ident;
+            let root_idx = info.code;
+            let shift = INNER_BITS;
+            if info.is_sentinel() {
+                if info.stores_code() {
+                    if let Some(field) = info.field_ident() {
+                        quote! { Self::#ident { #field: _ } => #root_idx }
+                    } else {
+                        quote! { Self::#ident(_) => #root_idx }
+                    }
+                } else {
+                    quote! { Self::#ident => #root_idx }
+                }
+            } else if info.field_ty().is_some() {
+                if let Some(field) = info.field_ident() {
+                    quote! { Self::#ident { #field: inner } => (#root_idx << #shift) | inner.into_code() }
+                } else {
+                    quote! { Self::#ident(inner) => (#root_idx << #shift) | inner.into_code() }
+                }
+            } else {
+                quote! { Self::#ident => #root_idx }
+            }
+        })
+        .collect()
 }
 
 /// Generate match arms for `from_code` unit variants in root mode.
 fn generate_from_arms_unit(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
     infos
         .iter()
-        .filter(|info| info.field_ty().is_none())
+        .filter(|info| info.field_ty().is_none() || info.stores_code())
         .map(|info| {
-            let ident = info.ident;
+            let ident = &info.ident;
             let root_idx = info.code;
-            quote! { #root_idx => Some(Self::#ident) }
+            if info.stores_code() {
+                if let Some(field) = info.field_ident() {
+                    quote! { #root_idx => Some(Self::#ident { #field: 0 }) }
+                } else {
+                    quote! { #root_idx => Some(Self::#ident(0)) }
+                }
+            } else {
+                quote! { #root_idx => Some(Self::#ident) }
+            }
         })
         .collect()
 }
 
 /// Generate match arms for `from_code` wrapped variants in root mode.
 fn generate_from_arms_wrapped(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    infos.iter().filter_map(|info| {
-        if let Some(ty) = info.field_ty() {
-            let ident = info.ident;
-            let root_idx = info.code;
-            let construct = if let Some(field) = info.field_ident() {
-                quote! { <#ty as soroban_sdk_tools::error::ContractError>::from_code(low).map(|inner| Self::#ident { #field: inner }) }
-            } else {
-                quote! { <#ty as soroban_sdk_tools::error::ContractError>::from_code(low).map(Self::#ident) }
-            };
-            Some(quote! { #root_idx => #construct })
-        } else {
-            None
-        }
-    }).collect()
+    infos
+        .iter()
+        .filter_map(|info| {
+            info.field_ty().and_then(|ty| {
+                if info.is_sentinel() {
+                    return None;
+                }
+                let ident = &info.ident;
+                let root_idx = info.code;
+                let construct = if let Some(field) = info.field_ident() {
+                    quote! { <#ty as soroban_sdk_tools::error::ContractError>::from_code(low).map(|inner| Self::#ident { #field: inner }) }
+                } else {
+                    quote! { <#ty as soroban_sdk_tools::error::ContractError>::from_code(low).map(Self::#ident) }
+                };
+                Some(quote! { #root_idx => #construct })
+            })
+        })
+        .collect()
 }
 
 /// Generate match arms for `description` method.
@@ -546,9 +700,21 @@ fn generate_desc_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
     infos
         .iter()
         .map(|info| {
-            let ident = info.ident;
+            let ident = &info.ident;
             let d = &info.description;
-            if let Some(field) = info.field_ident() {
+
+            // Sentinel variants use their own description, even if they store a code
+            if info.is_sentinel() {
+                if info.stores_code() {
+                    if let Some(field) = info.field_ident() {
+                        quote! { Self::#ident { #field: _ } => #d }
+                    } else {
+                        quote! { Self::#ident(_) => #d }
+                    }
+                } else {
+                    quote! { Self::#ident => #d }
+                }
+            } else if let Some(field) = info.field_ident() {
                 quote! { Self::#ident { #field } => #field.description() }
             } else if info.field_ty().is_some() {
                 quote! { Self::#ident(inner) => inner.description() }
@@ -623,17 +789,17 @@ fn generate_from_trait_impls(
     for info in infos.iter().filter(|i| i.has_from()) {
         let ty = info
             .field_ty()
-            .ok_or_else(|| Error::new(info.variant.span(), "#[from] on non-unit"))?;
+            .ok_or_else(|| Error::new(info.ident.span(), "#[from] on non-unit"))?;
         let ty_s = quote!(#ty).to_string();
         if seen.contains(&ty_s) {
             return Err(Error::new(
-                info.variant.span(),
+                info.ident.span(),
                 format!("Duplicate From impl for {}", ty_s),
             ));
         }
         seen.insert(ty_s);
 
-        let ident = info.ident;
+        let ident = &info.ident;
         let body = if let Some(field) = info.field_ident() {
             quote! { Self::#ident { #field: inner } }
         } else {
@@ -651,32 +817,59 @@ fn generate_from_trait_impls(
 
 /// Generate match arms for From<InvokeError> impl.
 fn generate_try_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    infos.iter().filter(|i| i.is_fcc()).map(|info| {
-        let ident = info.ident;
-        let ty = info.field_ty().unwrap();
-        let construct = if let Some(field) = info.field_ident() {
-            quote! { Self::#ident { #field: inner } }
-        } else {
-            quote! { Self::#ident(inner) }
-        };
-        quote! {
-            if let Some(inner) = <#ty as soroban_sdk_tools::error::ContractError>::from_code(code) {
-                return #construct;
+    infos
+        .iter()
+        .filter(|i| i.is_fcc())
+        .map(|info| {
+            let ident = &info.ident;
+            let ty = info.field_ty().unwrap();
+            let construct = if let Some(field) = info.field_ident() {
+                quote! { Self::#ident { #field: inner } }
+            } else {
+                quote! { Self::#ident(inner) }
+            };
+            quote! {
+                if let Some(inner) = <#ty as soroban_sdk_tools::error::ContractError>::from_code(code) {
+                    return #construct;
+                }
             }
+        })
+        .collect()
+}
+
+/// Generate the abort handler for From<InvokeError>.
+fn generate_abort_handler(infos: &[VariantInfo]) -> proc_macro2::TokenStream {
+    if let Some(info) = infos.iter().find(|i| i.is_from_abort()) {
+        let ident = &info.ident;
+        quote! { Self::#ident }
+    } else {
+        quote! { panic!("Cross-contract call aborted (error code 0)") }
+    }
+}
+
+/// Generate the unknown handler for From<InvokeError>.
+fn generate_unknown_handler(infos: &[VariantInfo]) -> proc_macro2::TokenStream {
+    if let Some(info) = infos.iter().find(|i| i.is_sentinel()) {
+        let ident = &info.ident;
+        if info.stores_code() {
+            if let Some(field) = info.field_ident() {
+                quote! { Self::#ident { #field: code } }
+            } else {
+                quote! { Self::#ident(code) }
+            }
+        } else {
+            quote! { Self::#ident }
         }
-    }).collect()
+    } else {
+        quote! { panic!("Unknown contract error code: {}", code) }
+    }
 }
 
 /// Generate the From<InvokeError> impl.
 fn generate_invoke_error_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let try_arms = generate_try_arms(infos);
-
-    let abort_handler = if let Some(abort_var) = infos.iter().find(|i| i.is_from_abort()) {
-        let ident = abort_var.ident;
-        quote! { Self::#ident }
-    } else {
-        quote! { panic!("Cross-contract call aborted (error code 0)") }
-    };
+    let abort_handler = generate_abort_handler(infos);
+    let unknown_handler = generate_unknown_handler(infos);
 
     quote! {
         impl From<soroban_sdk::InvokeError> for #name {
@@ -690,10 +883,8 @@ fn generate_invoke_error_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro
                             // 2. Try decoding as inner errors (from_contract_client only)
                             #(#try_arms)*
 
-                            // 3. If we are here, we have a contract error code that
-                            // matches nothing we know.
-                            // Standard behavior: panic to be safe/loud.
-                            panic!("Unknown contract error code: {}", code)
+                            // 3. Handle unknown
+                            #unknown_handler
                         }
                     }
                     soroban_sdk::InvokeError::Abort => {
@@ -758,7 +949,7 @@ fn generate_double_q_impls(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::
         .iter()
         .filter(|i| i.is_fcc())
         .map(|info| {
-            let ident = info.ident;
+            let ident = &info.ident;
             let ty = info.field_ty().unwrap();
             let ok_construct = if let Some(field) = info.field_ident() {
                 quote! { Self::#ident { #field: inner } }
@@ -784,20 +975,170 @@ fn generate_double_q_impls(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::
 // Expansion Logic
 // -----------------------------------------------------------------------------
 
+/// Add an auto-generated Aborted variant if configured.
+fn add_auto_abort_variant(
+    infos: &mut Vec<VariantInfo>,
+    next_code: u32,
+    input: &DeriveInput,
+) -> syn::Result<()> {
+    let ident = Ident::new("Aborted", input.span());
+    infos.push(VariantInfo {
+        ident,
+        code: next_code,
+        description: "Cross-contract call aborted".into(),
+        kind: VariantKind::AbortUnit,
+    });
+    Ok(())
+}
+
+/// Add an auto-generated UnknownError variant if configured.
+fn add_auto_unknown_variant(
+    infos: &mut Vec<VariantInfo>,
+    next_code: u32,
+    stores_code: bool,
+    input: &DeriveInput,
+) -> syn::Result<()> {
+    let ident = Ident::new("UnknownError", input.span());
+    infos.push(VariantInfo {
+        ident,
+        code: next_code,
+        description: "Unknown error from cross-contract call".into(),
+        kind: VariantKind::Sentinel { stores_code },
+    });
+    Ok(())
+}
+
+/// Handle auto-addition of special variants and config validation.
+fn handle_auto_variants(
+    mut infos: Vec<VariantInfo>,
+    config: &ScerrConfig,
+    input: &DeriveInput,
+) -> syn::Result<Vec<VariantInfo>> {
+    let has_abort = infos.iter().any(|i| i.is_from_abort());
+    let has_sentinel = infos.iter().any(|i| i.is_sentinel());
+
+    let handle_abort = config.handle_abort.clone().unwrap_or("auto".to_string());
+    if handle_abort != "auto" && handle_abort != "panic" {
+        return Err(Error::new(
+            input.span(),
+            "handle_abort must be 'auto' or 'panic'",
+        ));
+    }
+    let handle_unknown = config.handle_unknown.clone().unwrap_or("auto".to_string());
+    if handle_unknown != "auto" && handle_unknown != "panic" {
+        return Err(Error::new(
+            input.span(),
+            "handle_unknown must be 'auto' or 'panic'",
+        ));
+    }
+    let log_unknown_errors = config.log_unknown_errors;
+
+    if handle_abort == "panic" && has_abort {
+        return Err(Error::new(
+            input.span(),
+            "handle_abort='panic' conflicts with #[abort] variant",
+        ));
+    }
+    if handle_unknown == "panic" && has_sentinel {
+        return Err(Error::new(
+            input.span(),
+            "handle_unknown='panic' conflicts with #[sentinel] variant",
+        ));
+    }
+
+    let mut next_code = infos.iter().map(|i| i.code).max().unwrap_or(0) + 1;
+
+    if handle_abort == "auto" && !has_abort {
+        if next_code > ROOT_MAX {
+            return Err(Error::new(
+                input.span(),
+                "Too many error variants for root mode",
+            ));
+        }
+        add_auto_abort_variant(&mut infos, next_code, input)?;
+        next_code += 1;
+    }
+
+    if handle_unknown == "auto" && !has_sentinel {
+        if next_code > ROOT_MAX {
+            return Err(Error::new(
+                input.span(),
+                "Too many error variants for root mode",
+            ));
+        }
+        add_auto_unknown_variant(&mut infos, next_code, log_unknown_errors, input)?;
+    }
+
+    Ok(infos)
+}
+
+/// Generate logging impl if enabled.
+fn generate_logging_impl(
+    name: &Ident,
+    infos: &[VariantInfo],
+    log_unknown_errors: bool,
+    input: &DeriveInput,
+) -> syn::Result<proc_macro2::TokenStream> {
+    if !log_unknown_errors {
+        return Ok(quote! {});
+    }
+
+    let sentinel = infos.iter().find(|i| i.is_sentinel()).ok_or_else(|| {
+        Error::new(
+            input.span(),
+            "log_unknown_errors requires a sentinel variant (use handle_unknown='auto' or add #[sentinel])",
+        )
+    })?;
+
+    let sentinel_ident = &sentinel.ident;
+    let log_stmt = if sentinel.stores_code() {
+        let pat = if let Some(field) = sentinel.field_ident() {
+            quote! { Self::#sentinel_ident { #field: code } }
+        } else {
+            quote! { Self::#sentinel_ident(code) }
+        };
+        quote! {
+            if let #pat = res {
+                use soroban_sdk::IntoVal;
+                env.logs().add("Unknown error code", &[code.into_val(env)]);
+            }
+        }
+    } else {
+        quote! {
+            if let Self::#sentinel_ident = res {
+                env.logs().add("Unknown error", &[]);
+            }
+        }
+    };
+
+    Ok(quote! {
+        impl #name {
+            pub fn from_invoke_error(env: &soroban_sdk::Env, e: soroban_sdk::InvokeError) -> Self {
+                let res = Self::from(e);
+                #log_stmt
+                res
+            }
+        }
+    })
+}
+
 /// Expand the macro for root mode.
 fn expand_scerr_root(
     input: &DeriveInput,
-    infos: &[VariantInfo],
+    infos: Vec<VariantInfo>,
+    config: &ScerrConfig,
 ) -> syn::Result<proc_macro2::TokenStream> {
+    let infos = handle_auto_variants(infos, config, input)?;
+
     let name = &input.ident;
     let has_data = infos.iter().any(|i| i.field_ty().is_some());
-
-    let enum_def = generate_enum_def(name, infos, has_data);
-    let contract_error_impl = generate_contract_error_impl_root(name, infos);
-    let from_impls = generate_from_trait_impls(name, infos)?;
-    let invoke_impl = generate_invoke_error_impl(name, infos);
+    let enum_def = generate_enum_def(name, &infos, has_data);
+    let contract_error_impl = generate_contract_error_impl_root(name, &infos);
+    let from_impls = generate_from_trait_impls(name, &infos)?;
+    let invoke_impl = generate_invoke_error_impl(name, &infos);
     let soroban_impls = generate_soroban_conversions(name);
-    let double_q_impls = generate_double_q_impls(name, infos);
+    let double_q_impls = generate_double_q_impls(name, &infos);
+    let logging_impl = generate_logging_impl(name, &infos, config.log_unknown_errors, input)?;
 
     Ok(quote! {
         #enum_def
@@ -806,6 +1147,7 @@ fn expand_scerr_root(
         #invoke_impl
         #soroban_impls
         #double_q_impls
+        #logging_impl
     })
 }
 
@@ -818,7 +1160,7 @@ fn expand_scerr_basic(
     let variants: Vec<_> = infos
         .iter()
         .map(|i| {
-            let id = i.ident;
+            let id = &i.ident;
             let c = i.code;
             quote! { #id = #c }
         })
@@ -828,7 +1170,7 @@ fn expand_scerr_basic(
         .iter()
         .map(|i| {
             let c = i.code;
-            let ident = i.ident;
+            let ident = &i.ident;
             quote! { #c => Some(#name::#ident) }
         })
         .collect();
@@ -836,7 +1178,7 @@ fn expand_scerr_basic(
     let desc_arms: Vec<_> = infos
         .iter()
         .map(|i| {
-            let ident = i.ident;
+            let ident = &i.ident;
             let d = &i.description;
             quote! { #name::#ident => #d }
         })
@@ -869,20 +1211,24 @@ fn expand_scerr_basic(
 
 /// Main entry point for the #[scerr] macro.
 pub fn scerr_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let mode = match parse_scerr_attr(attr) {
-        Ok(m) => m,
+    let (mode, config) = match parse_scerr_attr(attr) {
+        Ok((m, c)) => (m, c),
         Err(e) => return e.to_compile_error().into(),
     };
 
     let input = parse_macro_input!(item as DeriveInput);
 
-    match expand_scerr(mode, input) {
+    match expand_scerr(mode, input, &config) {
         Ok(ts) => TokenStream::from(ts),
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn expand_scerr(mode: ScerrMode, input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+fn expand_scerr(
+    mode: ScerrMode,
+    input: DeriveInput,
+    config: &ScerrConfig,
+) -> syn::Result<proc_macro2::TokenStream> {
     let data_enum = match &input.data {
         Data::Enum(e) => e,
         _ => {
@@ -897,9 +1243,11 @@ fn expand_scerr(mode: ScerrMode, input: DeriveInput) -> syn::Result<proc_macro2:
 
     validate_variants(&infos, mode)?;
 
-    match mode {
-        ScerrMode::Basic => expand_scerr_basic(&input, &infos),
-        ScerrMode::Root => expand_scerr_root(&input, &infos),
+    if mode == ScerrMode::Root {
+        validate_root_variants(&infos)?;
+        expand_scerr_root(&input, infos, config)
+    } else {
+        expand_scerr_basic(&input, &infos)
     }
 }
 
@@ -917,15 +1265,14 @@ mod tests {
     fn test_parse_variant_info_unit() {
         let variant: Variant = parse_quote! { Test };
         let info = parse_variant_info(&variant, 1).unwrap();
-        assert!(matches!(info.kind, VariantKind::Unit { from_abort: false }));
+        assert!(matches!(info.kind, VariantKind::PlainUnit));
     }
 
     #[test]
     fn test_validate_variants_basic_non_unit() {
         let info = VariantInfo {
-            ident: &parse_quote!(Test),
+            ident: parse_quote!(Test),
             code: 1,
-            variant: &parse_quote!(Test(u32)),
             description: "test".to_string(),
             kind: VariantKind::Transparent {
                 field_ty: parse_quote!(u32),

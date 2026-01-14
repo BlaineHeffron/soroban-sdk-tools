@@ -87,7 +87,7 @@ impl Logic {
 // Outer contract with mixed usage
 // -----------------------------------------------------------------------------
 
-#[scerr(root)]
+#[scerr(mode = "root")]
 pub enum OuterError {
     #[description = "unauthorized"]
     Unauthorized,
@@ -358,7 +358,7 @@ fn transparent_propagates_with_question_mark() {
 // Test case for root-to-root collision via from_contract_client
 // -----------------------------------------------------------------------------
 
-#[scerr(root)]
+#[scerr(mode = "root")]
 pub enum InnerRootError {
     #[description = "inner unauthorized"]
     InnerUnauthorized,
@@ -380,7 +380,7 @@ impl InnerRoot {
     }
 }
 
-#[scerr(root)]
+#[scerr(mode = "root")]
 pub enum OuterRootError {
     #[description = "outer unauthorized"]
     OuterUnauthorized,
@@ -645,4 +645,246 @@ fn from_code_doesnt_match_wrong_namespace() {
     let code_2 = 2u32;
     let decoded_2 = OuterRootError::from_code(code_2);
     println!("  Trying to decode code 2: {:?}", decoded_2);
+}
+
+// -----------------------------------------------------------------------------
+// Test: Auto-generated abort and unknown handlers
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum AutoError {
+    InvalidInput,
+    #[from_contract_client]
+    Math(MathError),
+}
+
+#[contract]
+pub struct AutoContract;
+
+#[contractimpl]
+impl AutoContract {
+    pub fn call_math(env: Env, math_id: Address) -> Result<i64, AutoError> {
+        let client = MathClient::new(&env, &math_id);
+        client.try_safe_div(&10, &0)??;
+        Ok(0)
+    }
+}
+
+#[test]
+fn test_auto_abort_handler() {
+    // Verify Aborted variant was auto-generated
+    let abort_err = AutoError::Aborted;
+    assert_eq!(abort_err.description(), "Cross-contract call aborted");
+}
+
+#[test]
+fn test_auto_unknown_handler() {
+    // Verify UnknownError variant was auto-generated
+    let unknown = AutoError::UnknownError;
+    assert_eq!(
+        unknown.description(),
+        "Unknown error from cross-contract call"
+    );
+}
+// -----------------------------------------------------------------------------
+// Test: Error logging with sentinel
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root", handle_unknown = "auto", log_unknown_errors = true)]
+pub enum LoggingError {
+    InvalidInput,
+
+    #[from_contract_client]
+    Math(MathError),
+}
+
+#[contract]
+pub struct LoggingContract;
+
+#[contractimpl]
+impl LoggingContract {
+    pub fn call_with_logging(env: Env, math_id: Address) -> Result<i64, LoggingError> {
+        let client = MathClient::new(&env, &math_id);
+        let result = client.try_safe_div(&10, &0);
+
+        // Handle the nested Result: outer is InvokeError, inner is MathError
+        match result {
+            Ok(inner_result) => {
+                // inner_result is Result<i64, MathError>
+                match inner_result {
+                    Ok(val) => Ok(val),
+                    Err(contract_err) => {
+                        // Handle contract error (MathError)
+                        Err(LoggingError::from(contract_err))
+                    }
+                }
+            }
+            Err(inner_error) => match inner_error {
+                Ok(math_error) => Err(LoggingError::Math(math_error)),
+                Err(e) => Err(LoggingError::from_invoke_error(&env, e)),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_logging_unknown_errors() {
+    let env = Env::default();
+    let contract_id = env.register(LoggingContract, ());
+    let client = LoggingContractClient::new(&env, &contract_id);
+
+    // This should log if we get an unknown error
+    // (in this case it should map to Math variant, but demonstrates the mechanism)
+    let _ = client.try_call_with_logging(&env.register(Math, ()));
+}
+
+// -----------------------------------------------------------------------------
+// Test: Panic mode (default behavior)
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root")] // Default: both handle_abort and handle_unknown = "panic"
+pub enum PanicError {
+    InvalidInput,
+
+    #[from_contract_client]
+    Math(MathError),
+}
+
+#[contract]
+pub struct PanicContract;
+
+#[contractimpl]
+impl PanicContract {
+    pub fn call_math(env: Env, math_id: Address) -> Result<i64, PanicError> {
+        let client = MathClient::new(&env, &math_id);
+        client.try_safe_div(&10, &0)??;
+        Ok(0)
+    }
+}
+
+// Note: Can't easily test panic behavior in tests, but verifying compilation is valuable
+
+// -----------------------------------------------------------------------------
+// Test: Sentinel without code storage
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root")]
+pub enum SimpleSentinelError {
+    InvalidInput,
+
+    #[sentinel]
+    Unknown, // Unit variant - doesn't store code
+
+    #[from_contract_client]
+    Math(MathError),
+}
+
+#[test]
+fn test_simple_sentinel() {
+    let unknown = SimpleSentinelError::Unknown;
+    assert!(matches!(unknown, SimpleSentinelError::Unknown));
+}
+
+// -----------------------------------------------------------------------------
+// Test: Mixed transparent and from_contract_client
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum MixedError {
+    InvalidInput,
+
+    // Transparent for direct calls
+    #[transparent]
+    MathDirect(#[from] MathError),
+
+    // from_contract_client for cross-contract
+    #[from_contract_client]
+    MathRemote(MathError),
+}
+
+#[contract]
+pub struct MixedContract;
+
+#[contractimpl]
+impl MixedContract {
+    pub fn direct_div(num: i64, denom: i64) -> Result<i64, MixedError> {
+        // Direct call uses transparent variant
+        Math::safe_div(num, denom)?;
+        Ok(num / denom)
+    }
+
+    pub fn remote_div(env: Env, math_id: Address, num: i64, denom: i64) -> Result<i64, MixedError> {
+        // Cross-contract call uses from_contract_client variant
+        let client = MathClient::new(&env, &math_id);
+        client.try_safe_div(&num, &denom)??;
+        Ok(num / denom)
+    }
+}
+
+#[test]
+fn test_mixed_transparent() {
+    let env = Env::default();
+    let contract_id = env.register(MixedContract, ());
+    let client = MixedContractClient::new(&env, &contract_id);
+
+    // Test transparent variant
+    let result = client.try_direct_div(&10, &0);
+    assert!(result.is_err());
+
+    let err: MixedError = result.err().unwrap().unwrap();
+    assert!(matches!(err, MixedError::MathDirect(_)));
+}
+
+#[test]
+fn test_mixed_from_contract_client() {
+    let env = Env::default();
+    let math_id = env.register(Math, ());
+    let contract_id = env.register(MixedContract, ());
+    let client = MixedContractClient::new(&env, &contract_id);
+
+    // Test from_contract_client variant
+    let result = client.try_remote_div(&math_id, &10, &0);
+    assert!(result.is_err());
+
+    let err: MixedError = result.err().unwrap().unwrap();
+    assert!(matches!(err, MixedError::MathRemote(_)));
+}
+
+// -----------------------------------------------------------------------------
+// Test: Configuration conflicts
+// -----------------------------------------------------------------------------
+
+// These should fail to compile:
+
+// #[scerr(mode = "root", handle_abort = "panic")]
+// pub enum ConflictError {
+//     #[abort]  // Error: conflicts with handle_abort = "panic"
+//     Aborted,
+// }
+
+// #[scerr(mode = "root", handle_unknown = "panic")]
+// pub enum ConflictError2 {
+//     #[sentinel]  // Error: conflicts with handle_unknown = "panic"
+//     Unknown,
+// }
+
+// -----------------------------------------------------------------------------
+// Test: Roundtrip encoding with auto variants
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_auto_variants_roundtrip() {
+    // Test that auto-generated variants encode/decode correctly
+    let abort = AutoError::Aborted;
+    let code = abort.into_code();
+    let decoded = AutoError::from_code(code).expect("Should decode");
+    assert_eq!(abort, decoded);
+
+    let unknown = AutoError::UnknownError;
+    let code2 = unknown.into_code();
+    let decoded2 = AutoError::from_code(code2).expect("Should decode");
+    assert_eq!(unknown, decoded2);
+
+    // Ensure they have different codes
+    assert_ne!(code, code2);
 }

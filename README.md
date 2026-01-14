@@ -127,6 +127,7 @@ Operations include `get`, `set`, `has`, `remove`, `extend_ttl`, and `update`.
 
 For more examples, see the [tests](tests/) directory, which covers numeric keys, tuples, auto-shortening, symbolic modes, and DataKey-style patterns.
 
+
 ### Error Handling
 
 The `#[scerr]` macro simplifies defining contract error enums with automatic `u32` code assignment, required traits, and composable error handling across contracts.
@@ -157,7 +158,7 @@ This generates:
 
 #### Root Mode - Composable Errors
 
-For contracts that call other contracts or need to propagate errors from sub-modules, use `#[scerr(root)]`:
+For contracts that call other contracts or need to propagate errors from sub-modules, use `#[scerr(mode = "root")]`:
 
 ```rust
 use soroban_sdk_tools::scerr;
@@ -170,7 +171,7 @@ pub enum MathError {
 }
 
 // Outer contract with composable error handling
-#[scerr(root)]
+#[scerr(mode = "root")]
 pub enum AppError {
     // Own error variants
     Unauthorized,
@@ -183,10 +184,6 @@ pub enum AppError {
     // Cross-contract error handling
     #[from_contract_client]
     ExternalMath(MathError),
-    
-    // Handle abort errors (code 0)
-    #[from_abort_error]
-    Abort,
 }
 ```
 
@@ -212,22 +209,142 @@ pub enum AppError {
    }
    ```
 
-3. **Abort Handling** (`#[from_abort_error]`): Handles `InvokeError::Abort` (code 0)
-   ```rust
-   #[from_abort_error]
-   Abort,
-   ```
-
-4. **Automatic Conversions**: The `#[from]` attribute generates `From` impls:
+3. **Automatic Conversions**: The `#[from]` attribute generates `From` impls:
    ```rust
    let math_err = MathError::DivisionByZero;
    let app_err: AppError = math_err.into(); // Converts to AppError::Math
    ```
 
+#### Cross-Contract Error Handling Options
+
+Root mode provides configurable handling for edge cases when calling external contracts:
+
+##### Abort Handling (`handle_abort`)
+
+Controls how `InvokeError::Abort` (error code 0) is handled:
+
+- **`"panic"` (default)**: Panics when an external call aborts
+  ```rust
+  #[scerr(mode = "root")] // Panics on abort
+  pub enum AppError { /* ... */ }
+  ```
+
+- **`"auto"`**: Auto-generates an `Aborted` variant
+  ```rust
+  #[scerr(mode = "root", handle_abort = "auto")]
+  pub enum AppError {
+      InvalidInput,
+      #[from_contract_client]
+      Math(MathError),
+      // Auto-generated: Aborted
+  }
+  ```
+
+- **Custom with `#[abort]`**: Define your own abort handler
+  ```rust
+  #[scerr(mode = "root")]
+  pub enum AppError {
+      #[abort]
+      CallAborted,  // Catches InvokeError::Abort
+      // ...
+  }
+  ```
+
+##### Unknown Error Handling (`handle_unknown`)
+
+Controls how unmapped error codes from external contracts are handled:
+
+- **`"panic"` (default)**: Panics on unknown error codes
+  ```rust
+  #[scerr(mode = "root")] // Panics on unknown codes
+  pub enum AppError { /* ... */ }
+  ```
+
+- **`"auto"`**: Auto-generates an `UnknownError` variant
+  ```rust
+  #[scerr(mode = "root", handle_unknown = "auto")]
+  pub enum AppError {
+      InvalidInput,
+      #[from_contract_client]
+      Math(MathError),
+      // Auto-generated: UnknownError
+  }
+  ```
+
+- **Custom with `#[sentinel]`**: Define your own unknown error handler
+  ```rust
+  #[scerr(mode = "root")]
+  pub enum AppError {
+      #[sentinel]
+      Unmapped,  // Unit variant
+      
+      // Or store the unknown code:
+      #[sentinel]
+      UnknownError(u32),  // Stores original error code
+      // ...
+  }
+  ```
+
+##### Error Logging (`log_unknown_errors`)
+
+When enabled, logs unknown error codes via `env.logs().add()` before mapping to the sentinel variant:
+
+```rust
+#[scerr(mode = "root", handle_unknown = "auto", log_unknown_errors = true)]
+pub enum AppError {
+    InvalidInput,
+    #[from_contract_client]
+    Math(MathError),
+    // Auto-generated: UnknownError(u32) - stores code for logging
+}
+
+// Use the logging helper in your contract:
+pub fn call_external(env: Env, id: Address) -> Result<(), AppError> {
+    let client = ExternalClient::new(&env, &id);
+    let result = client.try_some_method();
+    
+    match result {
+        Ok(v) => v,
+        Err(e) => return Err(AppError::from_invoke_error(&env, e)),
+    }?;
+    
+    Ok(())
+}
+```
+
+**Requirements**: `log_unknown_errors = true` requires either `handle_unknown = "auto"` or an explicit `#[sentinel]` variant with code storage.
+
+##### Complete Configuration Example
+
+```rust
+#[scerr(
+    mode = "root",
+    handle_abort = "auto",       // Auto-generate Aborted variant
+    handle_unknown = "auto",     // Auto-generate UnknownError variant
+    log_unknown_errors = true    // Log unknown codes
+)]
+pub enum AppError {
+    // Your error variants
+    Unauthorized,
+    InvalidState,
+    
+    // Cross-contract errors
+    #[from_contract_client]
+    Math(MathError),
+    
+    #[from_contract_client]
+    Token(TokenError),
+    
+    // Auto-generated variants:
+    // - Aborted
+    // - UnknownError(u32)
+}
+```
+
 #### Architecture: 24/8 Bit Split
 
 Root mode uses a 24/8 bit split to prevent code collisions:
-- **Unit variants** (e.g., `Unauthorized`): Use codes 1-255 (8-bit namespace)
+- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use codes 1-255 (8-bit namespace, high bits = 0)
 - **Wrapped variants** (e.g., `Math(MathError)`): Use high 8 bits for namespace (index 1-255), low 24 bits for inner error code
 
 This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `2 << 24 | inner_code`).
@@ -237,7 +354,7 @@ This ensures that `AppError::Unauthorized` (code 1) never collides with `AppErro
 You can use both `#[transparent]` and `#[from_contract_client]` for the same error type:
 
 ```rust
-#[scerr(root)]
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
 pub enum AppError {
     // For direct calls (same Wasm instance)
     #[transparent]
@@ -250,7 +367,7 @@ pub enum AppError {
 
 // Direct call uses transparent variant
 pub fn direct_calc(x: i64, y: i64) -> Result<i64, AppError> {
-    Ok(Math::divide(x, y)? ) // Converts to MathDirect
+    Ok(Math::divide(x, y)?) // Converts to MathDirect
 }
 
 // Cross-contract call uses from_contract_client variant
@@ -275,7 +392,9 @@ println!("{}", err.description()); // "insufficient balance for transfer"
 - **Root mode**: Use in contracts that call other contracts or need error composition
 - **Transparent**: Use for in-process error propagation (same Wasm)
 - **from_contract_client**: Use for cross-contract invocations
-- **from_abort_error**: Always include one variant with this attribute in root mode to handle unexpected aborts
+- **handle_abort**: Set to `"auto"` or add `#[abort]` variant to gracefully handle aborts instead of panicking
+- **handle_unknown**: Set to `"auto"` for resilient error handling when calling contracts with unknown error codes
+- **log_unknown_errors**: Enable for debugging/monitoring unknown errors in production
 - **Avoid collisions**: Root mode automatically prevents collisions via bit splitting; basic mode uses hashing
 
 ### Authorization Testing
