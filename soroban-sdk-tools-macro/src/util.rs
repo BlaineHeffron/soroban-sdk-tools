@@ -3,7 +3,14 @@
 //! This module provides common functionality used across the contract,
 //! storage, and error macros.
 
+use std::path::PathBuf;
 use syn::{Error, Ident, Type};
+
+/// Convert a path relative to the crate's manifest directory to an absolute path.
+pub fn abs_from_rel_to_manifest(path: &str) -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    PathBuf::from(manifest_dir).join(path)
+}
 
 pub trait TypeExt {
     /// Get the base type name from a Type (e.g., `PersistentMap`<K, V> -> "`PersistentMap`")

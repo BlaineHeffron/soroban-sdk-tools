@@ -25,9 +25,9 @@ mod external {
 }
 use external::MathError;
 
-#[scerr(mode="root")]
+#[scerr(mode = "root")]
 pub enum Error {
-    #[description = "unauthorized"]
+    /// unauthorized
     Unauthorized,
 
     // Both for MathError

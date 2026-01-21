@@ -18,6 +18,30 @@ pub trait ContractError: Sized {
     fn description(&self) -> &'static str;
 }
 
+/// Spec entry for a single error variant.
+/// Used for flattening inner error types into outer contract specs.
+#[derive(Debug, Clone, Copy)]
+pub struct ErrorSpecEntry {
+    /// The error code (u32)
+    pub code: u32,
+    /// The variant name (e.g., "DivisionByZero")
+    pub name: &'static str,
+    /// Human-readable description
+    pub description: &'static str,
+}
+
+/// Trait providing spec metadata for error types.
+///
+/// This is automatically implemented by `#[scerr]` and can be used by
+/// root error enums to flatten inner error types into the contract spec.
+///
+/// For types imported via `contractimport_with_errors!`, a similar const
+/// is generated that can be used for spec flattening.
+pub trait ContractErrorSpec {
+    /// Array of spec entries for all variants in this error type.
+    const SPEC_ENTRIES: &'static [ErrorSpecEntry];
+}
+
 /// Helper to panic with an error and optional context
 #[macro_export]
 macro_rules! panic_with_error {

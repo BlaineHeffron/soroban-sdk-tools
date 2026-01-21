@@ -9,7 +9,7 @@ use soroban_sdk_tools::{scerr, soroban_sdk, ContractError};
 
 #[scerr]
 pub enum MathError {
-    #[description = "division by zero"]
+    /// division by zero
     DivisionByZero,
     NegativeInput,
 }
@@ -89,7 +89,7 @@ impl Logic {
 
 #[scerr(mode = "root")]
 pub enum OuterError {
-    #[description = "unauthorized"]
+    /// unauthorized
     Unauthorized,
 
     // Both for MathError
@@ -360,9 +360,9 @@ fn transparent_propagates_with_question_mark() {
 
 #[scerr(mode = "root")]
 pub enum InnerRootError {
-    #[description = "inner unauthorized"]
+    /// inner unauthorized
     InnerUnauthorized,
-    #[description = "inner invalid state"]
+    /// inner invalid state
     InnerInvalidState,
 }
 
@@ -382,7 +382,7 @@ impl InnerRoot {
 
 #[scerr(mode = "root")]
 pub enum OuterRootError {
-    #[description = "outer unauthorized"]
+    /// outer unauthorized
     OuterUnauthorized,
 
     #[from_contract_client]
@@ -633,12 +633,13 @@ fn from_code_doesnt_match_wrong_namespace() {
         );
     }
 
-    // Also test that the Inner variant index (2) doesn't collide
+    // Also test that the Inner variant has non-zero namespace bits (uses hash-based assignment)
     let inner_code = OuterRootError::Inner(InnerRootError::InnerUnauthorized).into_code();
-    assert_eq!(
-        inner_code >> 24,
-        2,
-        "Inner variant should have high bits = 2"
+    let namespace = inner_code >> 22; // 10/22 bit split
+    assert!(
+        namespace > 0 && namespace <= 1023,
+        "Inner variant should have valid namespace bits (1-1023), got {}",
+        namespace
     );
 
     // Code 2 (high = 0, low = 2) should not decode as anything, or at least not as Inner
@@ -887,4 +888,703 @@ fn test_auto_variants_roundtrip() {
 
     // Ensure they have different codes
     assert_ne!(code, code2);
+}
+
+// -----------------------------------------------------------------------------
+// Test: Standard #[contracterror] types (NOT using scerr)
+// These tests verify that both #[transparent] and #[from_contract_client]
+// work with standard soroban-sdk #[contracterror] types.
+// -----------------------------------------------------------------------------
+
+/// A standard contract error using only soroban-sdk's #[contracterror] macro.
+/// This does NOT use scerr - it's a plain old contracterror enum.
+#[soroban_sdk::contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum StandardError {
+    NotFound = 1,
+    AlreadyExists = 2,
+    InvalidArgument = 3,
+}
+
+/// Contract that uses standard #[contracterror] (not scerr)
+#[contract]
+pub struct StandardContract;
+
+#[contractimpl]
+impl StandardContract {
+    pub fn fail_not_found() -> Result<(), StandardError> {
+        Err(StandardError::NotFound)
+    }
+
+    pub fn fail_already_exists() -> Result<(), StandardError> {
+        Err(StandardError::AlreadyExists)
+    }
+
+    pub fn succeed() -> Result<u32, StandardError> {
+        Ok(42)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Test: #[from_contract_client] with standard #[contracterror]
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum FccStandardError {
+    /// unauthorized operation
+    Unauthorized,
+
+    // This uses #[from_contract_client] with a STANDARD contracterror type
+    // (not scerr). This should now work because we use TryFrom<InvokeError>
+    // and Error::get_code() which both standard and scerr types implement.
+    #[from_contract_client]
+    /// standard contract error
+    Standard(StandardError),
+}
+
+#[contract]
+pub struct FccStandardContract;
+
+#[contractimpl]
+impl FccStandardContract {
+    pub fn call_standard_fail(env: Env, standard_id: Address) -> Result<(), FccStandardError> {
+        let client = StandardContractClient::new(&env, &standard_id);
+        client.try_fail_not_found()??;
+        Ok(())
+    }
+
+    pub fn call_standard_success(env: Env, standard_id: Address) -> Result<u32, FccStandardError> {
+        let client = StandardContractClient::new(&env, &standard_id);
+        let result = client.try_succeed()??;
+        Ok(result)
+    }
+}
+
+fn setup_standard_contract(env: &Env) -> Address {
+    env.register(StandardContract, ())
+}
+
+fn setup_fcc_standard_contract(env: &Env) -> Address {
+    env.register(FccStandardContract, ())
+}
+
+#[test]
+fn test_fcc_with_standard_contracterror_success() {
+    let env = Env::default();
+    let standard_id = setup_standard_contract(&env);
+    let fcc_id = setup_fcc_standard_contract(&env);
+    let client = FccStandardContractClient::new(&env, &fcc_id);
+
+    let result = client.call_standard_success(&standard_id);
+    assert_eq!(result, 42);
+}
+
+#[test]
+fn test_fcc_with_standard_contracterror_error() {
+    let env = Env::default();
+    let standard_id = setup_standard_contract(&env);
+    let fcc_id = setup_fcc_standard_contract(&env);
+    let client = FccStandardContractClient::new(&env, &fcc_id);
+
+    let result = client.try_call_standard_fail(&standard_id);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: FccStandardError = err.expect("should be a contract error");
+
+    // The standard error should be properly decoded and wrapped
+    assert_eq!(decoded, FccStandardError::Standard(StandardError::NotFound));
+}
+
+#[test]
+fn test_fcc_standard_error_code_roundtrip() {
+    // Verify that encoding and decoding work correctly for standard errors
+    let err = FccStandardError::Standard(StandardError::NotFound);
+    let code = err.into_code();
+    let decoded = FccStandardError::from_code(code).expect("Should decode");
+    assert_eq!(err, decoded);
+
+    let err2 = FccStandardError::Standard(StandardError::AlreadyExists);
+    let code2 = err2.into_code();
+    let decoded2 = FccStandardError::from_code(code2).expect("Should decode");
+    assert_eq!(err2, decoded2);
+
+    // Codes should be different
+    assert_ne!(code, code2);
+}
+
+// -----------------------------------------------------------------------------
+// Test: #[transparent] with standard #[contracterror]
+// -----------------------------------------------------------------------------
+
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum TransparentStandardError {
+    /// unauthorized operation
+    Unauthorized,
+
+    // This uses #[transparent] with a STANDARD contracterror type.
+    // Now works because we use Error::get_code() instead of inner.into_code()
+    #[transparent]
+    /// standard error
+    Standard(#[from] StandardError),
+}
+
+#[contract]
+pub struct TransparentStandardContract;
+
+#[contractimpl]
+impl TransparentStandardContract {
+    /// Direct call - error propagates via transparent variant using From trait
+    pub fn direct_fail() -> Result<(), TransparentStandardError> {
+        // Use the ? operator which invokes From<StandardError>
+        let inner_result: Result<(), StandardError> = Err(StandardError::InvalidArgument);
+        inner_result?;
+        Ok(())
+    }
+
+    pub fn direct_success() -> Result<u32, TransparentStandardError> {
+        Ok(123)
+    }
+}
+
+fn setup_transparent_standard_contract(env: &Env) -> Address {
+    env.register(TransparentStandardContract, ())
+}
+
+#[test]
+fn test_transparent_with_standard_contracterror_success() {
+    let env = Env::default();
+    let contract_id = setup_transparent_standard_contract(&env);
+    let client = TransparentStandardContractClient::new(&env, &contract_id);
+
+    let result = client.direct_success();
+    assert_eq!(result, 123);
+}
+
+#[test]
+fn test_transparent_with_standard_contracterror_error() {
+    let env = Env::default();
+    let contract_id = setup_transparent_standard_contract(&env);
+    let client = TransparentStandardContractClient::new(&env, &contract_id);
+
+    let result = client.try_direct_fail();
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: TransparentStandardError = err.expect("should be a contract error");
+
+    // The standard error should be properly wrapped via transparent variant
+    assert_eq!(
+        decoded,
+        TransparentStandardError::Standard(StandardError::InvalidArgument)
+    );
+}
+
+#[test]
+fn test_transparent_standard_from_trait() {
+    // Verify that From<StandardError> is implemented via #[transparent] + #[from]
+    let inner = StandardError::NotFound;
+    let outer: TransparentStandardError = inner.into();
+    assert_eq!(
+        outer,
+        TransparentStandardError::Standard(StandardError::NotFound)
+    );
+}
+
+#[test]
+fn test_transparent_standard_error_code_roundtrip() {
+    // Verify that encoding and decoding work correctly for transparent standard errors
+    let err = TransparentStandardError::Standard(StandardError::NotFound);
+    let code = err.into_code();
+    let decoded = TransparentStandardError::from_code(code).expect("Should decode");
+    assert_eq!(err, decoded);
+
+    let err2 = TransparentStandardError::Standard(StandardError::InvalidArgument);
+    let code2 = err2.into_code();
+    let decoded2 = TransparentStandardError::from_code(code2).expect("Should decode");
+    assert_eq!(err2, decoded2);
+
+    // Codes should be different
+    assert_ne!(code, code2);
+}
+
+#[test]
+fn test_transparent_standard_no_collision_with_unit_variants() {
+    // Ensure transparent standard error codes don't collide with unit variant codes
+    let unauthorized = TransparentStandardError::Unauthorized;
+    let standard = TransparentStandardError::Standard(StandardError::NotFound);
+
+    let code1 = unauthorized.into_code();
+    let code2 = standard.into_code();
+
+    assert_ne!(
+        code1, code2,
+        "Unit and wrapped variant codes must not collide"
+    );
+
+    // Both should decode correctly
+    let decoded1 = TransparentStandardError::from_code(code1).expect("Should decode");
+    let decoded2 = TransparentStandardError::from_code(code2).expect("Should decode");
+
+    assert_eq!(unauthorized, decoded1);
+    assert_eq!(standard, decoded2);
+}
+
+// -----------------------------------------------------------------------------
+// Test: Spec companion enum generation
+// These tests verify that the spec companion enum is generated correctly
+// for TypeScript bindings and other tooling.
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_spec_companion_enum_exists() {
+    // Verify that the spec companion enum exists and has the expected variants
+    // OuterErrorSpec should be generated for OuterError
+    let _ = OuterErrorSpec::Unauthorized;
+    let _ = OuterErrorSpec::MathNamespace;
+    let _ = OuterErrorSpec::MathClientNamespace;
+    let _ = OuterErrorSpec::CalcNamespace;
+    let _ = OuterErrorSpec::LogicClientNamespace;
+}
+
+#[test]
+fn test_spec_companion_unit_variant_codes() {
+    // Unit variants should have the same codes as the original enum
+    assert_eq!(OuterErrorSpec::Unauthorized as u32, 1);
+}
+
+#[test]
+fn test_spec_companion_namespace_codes() {
+    // With 10/22 bit split and hash-based namespace assignment,
+    // namespace codes are computed from hash(variant_name) % 1023 + 1.
+    // The namespace code is namespace << 22 (start of range).
+
+    // All namespaces should be valid (1-1023 shifted left by 22)
+    let math_ns = OuterErrorSpec::MathNamespace as u32;
+    let namespace = math_ns >> 22;
+    assert!(
+        namespace > 0 && namespace <= 1023,
+        "Math namespace should be valid (1-1023), got {}",
+        namespace
+    );
+
+    let math_client_ns = OuterErrorSpec::MathClientNamespace as u32;
+    let namespace = math_client_ns >> 22;
+    assert!(
+        namespace > 0 && namespace <= 1023,
+        "MathClient namespace should be valid (1-1023), got {}",
+        namespace
+    );
+
+    let calc_ns = OuterErrorSpec::CalcNamespace as u32;
+    let namespace = calc_ns >> 22;
+    assert!(
+        namespace > 0 && namespace <= 1023,
+        "Calc namespace should be valid (1-1023), got {}",
+        namespace
+    );
+
+    let logic_client_ns = OuterErrorSpec::LogicClientNamespace as u32;
+    let namespace = logic_client_ns >> 22;
+    assert!(
+        namespace > 0 && namespace <= 1023,
+        "LogicClient namespace should be valid (1-1023), got {}",
+        namespace
+    );
+
+    // All namespaces should be distinct
+    let namespaces = [
+        math_ns >> 22,
+        math_client_ns >> 22,
+        calc_ns >> 22,
+        logic_client_ns >> 22,
+    ];
+    for i in 0..namespaces.len() {
+        for j in (i + 1)..namespaces.len() {
+            assert_ne!(
+                namespaces[i], namespaces[j],
+                "Namespaces should be distinct"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_fcc_standard_spec_companion_exists() {
+    // Verify spec companion for FccStandardError
+    let _ = FccStandardErrorSpec::Unauthorized;
+    let _ = FccStandardErrorSpec::StandardNamespace;
+    let _ = FccStandardErrorSpec::Aborted;
+    let _ = FccStandardErrorSpec::UnknownError;
+}
+
+#[test]
+fn test_transparent_standard_spec_companion_exists() {
+    // Verify spec companion for TransparentStandardError
+    let _ = TransparentStandardErrorSpec::Unauthorized;
+    let _ = TransparentStandardErrorSpec::StandardNamespace;
+    let _ = TransparentStandardErrorSpec::Aborted;
+    let _ = TransparentStandardErrorSpec::UnknownError;
+}
+
+// -----------------------------------------------------------------------------
+// Test: Mixed scerr and non-scerr types with #[from_contract_client]
+// This tests the edge case of having multiple FCC variants that wrap
+// different types - some using scerr, some using standard #[contracterror].
+// -----------------------------------------------------------------------------
+
+/// Another standard contract error (non-scerr) for testing mixed scenarios
+#[soroban_sdk::contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum StorageError {
+    KeyNotFound = 1,
+    ValueTooLarge = 2,
+    QuotaExceeded = 3,
+}
+
+/// Contract using StorageError (standard contracterror)
+#[contract]
+pub struct StorageContract;
+
+#[contractimpl]
+impl StorageContract {
+    pub fn get_value(_key: u32) -> Result<u32, StorageError> {
+        Err(StorageError::KeyNotFound)
+    }
+
+    pub fn set_value(_key: u32, _value: u32) -> Result<(), StorageError> {
+        Err(StorageError::ValueTooLarge)
+    }
+
+    pub fn check_quota() -> Result<(), StorageError> {
+        Err(StorageError::QuotaExceeded)
+    }
+}
+
+/// Mixed error enum with multiple FCC variants:
+/// - MathError: scerr type
+/// - StandardError: standard contracterror
+/// - StorageError: another standard contracterror
+/// - LogicError: scerr type
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum MixedFccError {
+    /// operation not permitted
+    NotPermitted,
+
+    /// invalid configuration
+    InvalidConfig,
+
+    // FCC with scerr type (MathError uses scerr)
+    #[from_contract_client]
+    /// math operation error
+    MathOp(MathError),
+
+    // FCC with standard contracterror (StandardError)
+    #[from_contract_client]
+    /// standard operation error
+    StandardOp(StandardError),
+
+    // FCC with another standard contracterror (StorageError)
+    #[from_contract_client]
+    /// storage operation error
+    StorageOp(StorageError),
+
+    // FCC with another scerr type (LogicError uses scerr)
+    #[from_contract_client]
+    /// logic operation error
+    LogicOp(LogicError),
+}
+
+/// Contract that calls multiple other contracts with mixed error types
+#[contract]
+pub struct MixedFccContract;
+
+#[contractimpl]
+impl MixedFccContract {
+    /// Call math contract (scerr type)
+    pub fn call_math(
+        env: Env,
+        math_id: Address,
+        num: i64,
+        denom: i64,
+    ) -> Result<i64, MixedFccError> {
+        let client = MathClient::new(&env, &math_id);
+        let result = client.try_safe_div(&num, &denom)??;
+        Ok(result)
+    }
+
+    /// Call standard contract (standard contracterror)
+    pub fn call_standard_fail(env: Env, standard_id: Address) -> Result<(), MixedFccError> {
+        let client = StandardContractClient::new(&env, &standard_id);
+        client.try_fail_not_found()??;
+        Ok(())
+    }
+
+    /// Call storage contract (another standard contracterror)
+    pub fn call_storage_get(env: Env, storage_id: Address, key: u32) -> Result<u32, MixedFccError> {
+        let client = StorageContractClient::new(&env, &storage_id);
+        let result = client.try_get_value(&key)??;
+        Ok(result)
+    }
+
+    /// Call logic contract (scerr type)
+    pub fn call_logic(env: Env, logic_id: Address, x: i64) -> Result<(), MixedFccError> {
+        let client = LogicClient::new(&env, &logic_id);
+        client.try_check_positive(&x)??;
+        Ok(())
+    }
+
+    /// Chain calls: math -> storage -> logic
+    pub fn chain_calls(
+        env: Env,
+        math_id: Address,
+        storage_id: Address,
+        logic_id: Address,
+        num: i64,
+        denom: i64,
+    ) -> Result<u32, MixedFccError> {
+        // First call math (scerr)
+        let math_client = MathClient::new(&env, &math_id);
+        let div_result = math_client.try_safe_div(&num, &denom)??;
+
+        // Then call storage (standard contracterror) - will fail
+        let storage_client = StorageContractClient::new(&env, &storage_id);
+        let storage_result = storage_client.try_get_value(&(div_result as u32))??;
+
+        // Finally call logic (scerr)
+        let logic_client = LogicClient::new(&env, &logic_id);
+        logic_client.try_check_positive(&(storage_result as i64))??;
+
+        Ok(storage_result)
+    }
+}
+
+fn setup_storage_contract(env: &Env) -> Address {
+    env.register(StorageContract, ())
+}
+
+fn setup_mixed_fcc_contract(env: &Env) -> Address {
+    env.register(MixedFccContract, ())
+}
+
+// -----------------------------------------------------------------------------
+// Tests for mixed scerr and non-scerr FCC
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_mixed_fcc_math_error_scerr() {
+    // Test FCC with scerr type (MathError)
+    let env = Env::default();
+    let math_id = setup_math_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    // Division by zero
+    let result = client.try_call_math(&math_id, &10, &0);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::MathOp(MathError::DivisionByZero));
+}
+
+#[test]
+fn test_mixed_fcc_standard_error() {
+    // Test FCC with standard contracterror (StandardError)
+    let env = Env::default();
+    let standard_id = setup_standard_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    let result = client.try_call_standard_fail(&standard_id);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::StandardOp(StandardError::NotFound));
+}
+
+#[test]
+fn test_mixed_fcc_storage_error() {
+    // Test FCC with another standard contracterror (StorageError)
+    let env = Env::default();
+    let storage_id = setup_storage_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    let result = client.try_call_storage_get(&storage_id, &42);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::StorageOp(StorageError::KeyNotFound));
+}
+
+#[test]
+fn test_mixed_fcc_logic_error_scerr() {
+    // Test FCC with another scerr type (LogicError)
+    let env = Env::default();
+    let logic_id = setup_logic_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    let result = client.try_call_logic(&logic_id, &-5);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::LogicOp(LogicError::InvalidState));
+}
+
+#[test]
+fn test_mixed_fcc_error_codes_no_collision() {
+    // Verify that all error variants have unique codes
+    let not_permitted = MixedFccError::NotPermitted;
+    let invalid_config = MixedFccError::InvalidConfig;
+    let math_div_zero = MixedFccError::MathOp(MathError::DivisionByZero);
+    let math_neg = MixedFccError::MathOp(MathError::NegativeInput);
+    let standard_not_found = MixedFccError::StandardOp(StandardError::NotFound);
+    let standard_exists = MixedFccError::StandardOp(StandardError::AlreadyExists);
+    let storage_key = MixedFccError::StorageOp(StorageError::KeyNotFound);
+    let storage_large = MixedFccError::StorageOp(StorageError::ValueTooLarge);
+    let logic_invalid = MixedFccError::LogicOp(LogicError::InvalidState);
+    let logic_unauth = MixedFccError::LogicOp(LogicError::Unauthorized);
+    let aborted = MixedFccError::Aborted;
+    let unknown = MixedFccError::UnknownError;
+
+    let codes = [
+        not_permitted.into_code(),
+        invalid_config.into_code(),
+        math_div_zero.into_code(),
+        math_neg.into_code(),
+        standard_not_found.into_code(),
+        standard_exists.into_code(),
+        storage_key.into_code(),
+        storage_large.into_code(),
+        logic_invalid.into_code(),
+        logic_unauth.into_code(),
+        aborted.into_code(),
+        unknown.into_code(),
+    ];
+
+    // All codes should be unique
+    for i in 0..codes.len() {
+        for j in (i + 1)..codes.len() {
+            assert_ne!(
+                codes[i], codes[j],
+                "Code collision between error variants at indices {} and {}",
+                i, j
+            );
+        }
+    }
+}
+
+#[test]
+fn test_mixed_fcc_error_code_roundtrip() {
+    // Test encoding and decoding for all variant types
+    let errors = [
+        MixedFccError::NotPermitted,
+        MixedFccError::InvalidConfig,
+        MixedFccError::MathOp(MathError::DivisionByZero),
+        MixedFccError::MathOp(MathError::NegativeInput),
+        MixedFccError::StandardOp(StandardError::NotFound),
+        MixedFccError::StandardOp(StandardError::AlreadyExists),
+        MixedFccError::StandardOp(StandardError::InvalidArgument),
+        MixedFccError::StorageOp(StorageError::KeyNotFound),
+        MixedFccError::StorageOp(StorageError::ValueTooLarge),
+        MixedFccError::StorageOp(StorageError::QuotaExceeded),
+        MixedFccError::LogicOp(LogicError::InvalidState),
+        MixedFccError::LogicOp(LogicError::Unauthorized),
+        MixedFccError::Aborted,
+        MixedFccError::UnknownError,
+    ];
+
+    for err in errors {
+        let code = err.into_code();
+        let decoded = MixedFccError::from_code(code).expect("Should decode");
+        assert_eq!(
+            err, decoded,
+            "Roundtrip failed for {:?} (code {})",
+            err, code
+        );
+    }
+}
+
+#[test]
+fn test_mixed_fcc_namespaces_distinct() {
+    // Verify that scerr and standard types use distinct namespaces
+    let math_err = MixedFccError::MathOp(MathError::DivisionByZero);
+    let standard_err = MixedFccError::StandardOp(StandardError::NotFound);
+    let storage_err = MixedFccError::StorageOp(StorageError::KeyNotFound);
+    let logic_err = MixedFccError::LogicOp(LogicError::InvalidState);
+
+    let math_ns = math_err.into_code() >> 24;
+    let standard_ns = standard_err.into_code() >> 24;
+    let storage_ns = storage_err.into_code() >> 24;
+    let logic_ns = logic_err.into_code() >> 24;
+
+    // All namespaces should be different
+    assert_ne!(math_ns, standard_ns);
+    assert_ne!(math_ns, storage_ns);
+    assert_ne!(math_ns, logic_ns);
+    assert_ne!(standard_ns, storage_ns);
+    assert_ne!(standard_ns, logic_ns);
+    assert_ne!(storage_ns, logic_ns);
+
+    // Unit variants should have namespace 0
+    let unit_ns = MixedFccError::NotPermitted.into_code() >> 24;
+    assert_eq!(unit_ns, 0);
+}
+
+#[test]
+fn test_mixed_fcc_spec_companion_exists() {
+    // Verify spec companion enum has all expected variants
+    let _ = MixedFccErrorSpec::NotPermitted;
+    let _ = MixedFccErrorSpec::InvalidConfig;
+    let _ = MixedFccErrorSpec::MathOpNamespace;
+    let _ = MixedFccErrorSpec::StandardOpNamespace;
+    let _ = MixedFccErrorSpec::StorageOpNamespace;
+    let _ = MixedFccErrorSpec::LogicOpNamespace;
+    let _ = MixedFccErrorSpec::Aborted;
+    let _ = MixedFccErrorSpec::UnknownError;
+}
+
+#[test]
+fn test_mixed_fcc_chain_calls_first_fails() {
+    // Test chained calls where the first (scerr) fails
+    let env = Env::default();
+    let math_id = setup_math_contract(&env);
+    let storage_id = setup_storage_contract(&env);
+    let logic_id = setup_logic_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    // Math will fail with division by zero
+    let result = client.try_chain_calls(&math_id, &storage_id, &logic_id, &10, &0);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::MathOp(MathError::DivisionByZero));
+}
+
+#[test]
+fn test_mixed_fcc_chain_calls_second_fails() {
+    // Test chained calls where the second (standard contracterror) fails
+    let env = Env::default();
+    let math_id = setup_math_contract(&env);
+    let storage_id = setup_storage_contract(&env);
+    let logic_id = setup_logic_contract(&env);
+    let mixed_id = setup_mixed_fcc_contract(&env);
+    let client = MixedFccContractClient::new(&env, &mixed_id);
+
+    // Math succeeds (10/2=5), but storage will fail with KeyNotFound
+    let result = client.try_chain_calls(&math_id, &storage_id, &logic_id, &10, &2);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: MixedFccError = err.expect("should be contract error");
+    assert_eq!(decoded, MixedFccError::StorageOp(StorageError::KeyNotFound));
 }

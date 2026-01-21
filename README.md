@@ -141,7 +141,7 @@ use soroban_sdk_tools::scerr;
 
 #[scerr]
 pub enum TokenError {
-    #[description = "insufficient balance for transfer"]
+    /// insufficient balance for transfer
     InsufficientBalance,
     Unauthorized,
     InvalidAmount,
@@ -154,7 +154,7 @@ This generates:
 - `ContractError` trait implementation with `into_code()`, `from_code()`, and `description()` methods
 - All required Soroban conversion traits (`TryFromVal`, `IntoVal`, etc.)
 
-**Custom descriptions**: Use `#[description = "..."]` on variants for human-readable error messages. Without it, the variant name is used.
+**Descriptions**: Doc comments (`///`) on variants become human-readable error descriptions. Without a doc comment, the variant name is used.
 
 #### Root Mode - Composable Errors
 
@@ -341,13 +341,15 @@ pub enum AppError {
 }
 ```
 
-#### Architecture: 24/8 Bit Split
+#### Architecture: 10/22 Bit Split
 
-Root mode uses a 24/8 bit split to prevent code collisions:
-- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use codes 1-255 (8-bit namespace, high bits = 0)
-- **Wrapped variants** (e.g., `Math(MathError)`): Use high 8 bits for namespace (index 1-255), low 24 bits for inner error code
+Root mode uses a 10/22 bit split to prevent code collisions:
+- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use codes 1-1023 (high 10 bits = 0)
+- **Wrapped variants** (e.g., `Math(MathError)`): Use high 10 bits for namespace (1-1023), low 22 bits for inner error code
 
-This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `2 << 24 | inner_code`).
+Namespaces are assigned using a hash of the variant name (`hash(variant_name) % 1023 + 1`), ensuring deterministic and collision-resistant assignment across contracts.
+
+This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `namespace << 22 | inner_code`).
 
 #### Mixed Usage Example
 
@@ -395,7 +397,71 @@ println!("{}", err.description()); // "insufficient balance for transfer"
 - **handle_abort**: Set to `"auto"` or add `#[abort]` variant to gracefully handle aborts instead of panicking
 - **handle_unknown**: Set to `"auto"` for resilient error handling when calling contracts with unknown error codes
 - **log_unknown_errors**: Enable for debugging/monitoring unknown errors in production
-- **Avoid collisions**: Root mode automatically prevents collisions via bit splitting; basic mode uses hashing
+
+#### Cross-Contract Imports with TypeScript Bindings
+
+When importing contracts via WASM files, use `contractimport_with_errors!` with the `scerr_variant` and `outer_error` parameters to generate well-organized TypeScript bindings:
+
+```rust
+mod math_imported {
+    soroban_sdk_tools::contractimport_with_errors!(
+        file = "../target/wasm32v1-none/release/math_contract.wasm",
+        scerr_variant = "Math",        // Must match the variant name in scerr
+        outer_error = "AppError"       // Names the flattened spec for clarity
+    );
+}
+
+#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+pub enum AppError {
+    Unauthorized,
+
+    #[from_contract_client]
+    Math(math_imported::MathError),  // Variant name matches scerr_variant
+}
+```
+
+This produces TypeScript bindings with clear naming relationships:
+
+```typescript
+// Inner error codes (raw)
+export const MathError = {
+  704653: {message: "DivisionByZero"},
+  3712432: {message: "NegativeInput"}
+}
+
+// Flattened codes - named to show relationship to AppError
+export const AppError_Math = {
+  2915745933: {message: "Math_DivisionByZero"},
+  2918753712: {message: "Math_NegativeInput"}
+}
+
+// Main error enum with unit variants
+export const AppError = {
+  1: {message: "Unauthorized"},
+  696: {message: "Aborted"},
+  697: {message: "UnknownError"}
+}
+```
+
+Combine them for comprehensive error matching:
+
+```typescript
+// Create a combined error map
+const AllErrors = {...AppError, ...AppError_Math};
+
+try {
+  await client.div_imported({math_id, num: 10n, denom: 0n});
+} catch (e) {
+  const code = getErrorCode(e);
+  if (code in AllErrors) {
+    console.log(`Error: ${AllErrors[code].message}`);
+  }
+}
+```
+
+**Parameters**:
+- `scerr_variant`: Must match the variant name in `#[from_contract_client]`. Used for namespace computation.
+- `outer_error`: Names the flattened spec as `{outer_error}_{variant}` (e.g., `AppError_Math`). If omitted, defaults to `{variant}_Flattened`.
 
 ### Authorization Testing
 
