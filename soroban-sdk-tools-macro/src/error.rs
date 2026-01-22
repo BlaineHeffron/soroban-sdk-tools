@@ -93,7 +93,7 @@
 //!
 //! ### What Does NOT Work
 //!
-//! Using local Cargo dependencies will NOT generate the unified enum:
+//! **1. Using local Cargo dependencies** will NOT generate the unified enum:
 //!
 //! ```rust,ignore
 //! use math_inner::MathError;  // From Cargo.toml dependency - NO unified enum
@@ -102,6 +102,25 @@
 //! pub enum MyError {
 //!     #[from_contract_client]
 //!     Math(MathError),  // ❌ Only namespace markers in spec, not flattened variants
+//! }
+//! ```
+//!
+//! **2. Using `use` to import the type** - must use full path in the enum:
+//!
+//! ```rust,ignore
+//! use math_imported::MathError;  // ❌ Don't import, use full path instead
+//!
+//! #[scerr(mode = "root")]
+//! pub enum MyError {
+//!     #[from_contract_client]
+//!     Math(MathError),  // ❌ scerr can't derive getter macro path from 1-segment type
+//! }
+//!
+//! // ✅ Correct: use full path in enum definition
+//! #[scerr(mode = "root")]
+//! pub enum MyError {
+//!     #[from_contract_client]
+//!     Math(math_imported::MathError),  // ✅ Full path allows getter macro derivation
 //! }
 //! ```
 //!
@@ -1610,13 +1629,17 @@ fn expand_scerr_root(
     let double_q_impls = generate_double_q_impls(name, &infos);
     let logging_impl = generate_logging_impl(name, &infos, config.log_unknown_errors, input)?;
 
-    // Always generate spec companion enum for bindings - provides namespace markers
-    // for TypeScript to understand the namespace structure
-    let spec_companion = generate_spec_companion(name, &infos);
-
     // Generate unified spec when FCC variants exist with getter macros, or mixins are specified
-    // This provides fully flattened variants IN ADDITION to the namespace markers
     let unified_spec = generate_unified_spec_call(name, &infos, &config.mixins)?;
+
+    // Only generate spec companion (with namespace markers) if unified spec wasn't generated.
+    // When unified spec exists, it contains all flattened variants and the spec companion
+    // would be redundant.
+    let spec_companion = if unified_spec.is_empty() {
+        generate_spec_companion(name, &infos)
+    } else {
+        quote! {}
+    };
 
     Ok(quote! {
         #enum_def

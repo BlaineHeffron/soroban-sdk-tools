@@ -6,7 +6,7 @@ mod external {
     use soroban_sdk::InvokeError;
     use soroban_sdk_tools::ContractError;
 
-    soroban_sdk::contractimport!(
+    soroban_sdk_tools::contractimport_with_errors!(
         file = "../../../target/stellar/soroban_errors_external_contract.wasm"
     );
     impl ContractError for MathError {
@@ -23,16 +23,15 @@ mod external {
         }
     }
 }
-use external::MathError;
-
 #[scerr(mode = "root")]
 pub enum Error {
     /// unauthorized
     Unauthorized,
 
-    // Both for MathError
+    // Use full path (external::MathError) so scerr can derive the getter macro path
+    // for unified flattened error generation
     #[from_contract_client]
-    Math(#[from] MathError),
+    Math(#[from] external::MathError),
 }
 
 #[contract]
