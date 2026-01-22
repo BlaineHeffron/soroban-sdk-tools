@@ -63,10 +63,10 @@ struct ErrorVariantInfo {
 fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
     specs
         .iter()
-        .filter_map(|entry| {
-            if let ScSpecEntry::UdtErrorEnumV0(e) = entry {
-                let name = e.name.to_utf8_string_lossy();
-                let variants = e
+        .filter_map(|entry| match entry {
+            ScSpecEntry::UdtErrorEnumV0(e) => Some(ErrorEnumInfo {
+                name: e.name.to_utf8_string_lossy(),
+                variants: e
                     .cases
                     .iter()
                     .map(|c| ErrorVariantInfo {
@@ -74,21 +74,16 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
                         code: c.value,
                         doc: c.doc.to_utf8_string_lossy(),
                     })
-                    .collect();
-                Some(ErrorEnumInfo { name, variants })
-            } else {
-                None
-            }
+                    .collect(),
+            }),
+            _ => None,
         })
         .collect()
 }
 
-/// Generate the __SCERR_SPEC_{TypeName} const for an error enum.
-/// This provides programmatic access to error variant info.
-fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
-    let const_name = format_ident!("__SCERR_SPEC_{}", info.name);
-    let entries: Vec<_> = info
-        .variants
+/// Generate ErrorSpecEntry tokens for a list of variants.
+fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
+    variants
         .iter()
         .map(|v| {
             let code = v.code;
@@ -102,8 +97,14 @@ fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
                 }
             }
         })
-        .collect();
+        .collect()
+}
 
+/// Generate the __SCERR_SPEC_{TypeName} const for an error enum.
+/// This provides programmatic access to error variant info.
+fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
+    let const_name = format_ident!("__SCERR_SPEC_{}", info.name);
+    let entries = generate_spec_entries(&info.variants);
     let doc = format!(
         "Spec metadata for `{}` error enum. Used by scerr for spec flattening.",
         info.name
@@ -121,22 +122,7 @@ fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
 /// Generate ContractErrorSpec implementation for imported error types.
 fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
-    let entries: Vec<_> = info
-        .variants
-        .iter()
-        .map(|v| {
-            let code = v.code;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code,
-                    name: #name,
-                    description: #doc,
-                }
-            }
-        })
-        .collect();
+    let entries = generate_spec_entries(&info.variants);
 
     quote! {
         impl soroban_sdk_tools::error::ContractErrorSpec for #type_name {

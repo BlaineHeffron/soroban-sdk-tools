@@ -1563,8 +1563,7 @@ fn generate_unified_spec_call(
             let segments = &type_path.path.segments;
             if segments.len() >= 2 {
                 // Module is all but the last segment
-                let module_segments: Vec<_> =
-                    segments.iter().take(segments.len() - 1).collect();
+                let module_segments: Vec<_> = segments.iter().take(segments.len() - 1).collect();
                 // Type name is the last segment
                 let type_name = &segments.last()?.ident;
                 let getter_name = format_ident!("__scerr_{}_variants", type_name);
