@@ -1588,3 +1588,138 @@ fn test_mixed_fcc_chain_calls_second_fails() {
     let decoded: MixedFccError = err.expect("should be contract error");
     assert_eq!(decoded, MixedFccError::StorageOp(StorageError::KeyNotFound));
 }
+
+// =============================================================================
+// Tests for __build_unified_spec! macro
+// =============================================================================
+//
+// The __build_unified_spec! macro generates a unified flattened error enum
+// containing all unit variants plus flattened variants from imported contracts.
+// It is invoked automatically by scerr when #[from_contract_client] variants
+// reference types from contractimport_with_errors! modules.
+
+#[test]
+fn test_build_unified_spec_unit_variants_only() {
+    // Test __build_unified_spec! with only unit variants (no mixins)
+    soroban_sdk_tools::__build_unified_spec! {
+        @name TestUnifiedUnit
+        @unit [
+            { name: Unauthorized, code: 1, doc: "unauthorized operation" },
+            { name: InvalidInput, code: 2, doc: "invalid input provided" }
+        ]
+        @mixins []
+    }
+
+    // Verify the enum was generated in a hidden module
+    use __scerr_unified_testunifiedunit::TestUnifiedUnit;
+
+    // Verify variant codes
+    assert_eq!(TestUnifiedUnit::Unauthorized as u32, 1);
+    assert_eq!(TestUnifiedUnit::InvalidInput as u32, 2);
+}
+
+#[test]
+fn test_build_unified_spec_with_accumulated_variants() {
+    // Test __build_unified_spec! base case with pre-accumulated flattened variants
+    // This simulates what happens after getter macros have been processed
+    soroban_sdk_tools::__build_unified_spec! {
+        @name TestUnifiedWithAcc
+        @acc [
+            { name: MathError_DivisionByZero, code: 3922378893, doc: "division by zero" },
+            { name: MathError_NegativeInput, code: 3925386672, doc: "negative input" }
+        ]
+        @unit [
+            { name: Unauthorized, code: 1, doc: "unauthorized" },
+            { name: Aborted, code: 936, doc: "aborted" }
+        ]
+        @pending []
+    }
+
+    use __scerr_unified_testunifiedwithacc::TestUnifiedWithAcc;
+
+    // Verify unit variants
+    assert_eq!(TestUnifiedWithAcc::Unauthorized as u32, 1);
+    assert_eq!(TestUnifiedWithAcc::Aborted as u32, 936);
+
+    // Verify flattened variants from accumulator
+    assert_eq!(
+        TestUnifiedWithAcc::MathError_DivisionByZero as u32,
+        3922378893
+    );
+    assert_eq!(
+        TestUnifiedWithAcc::MathError_NegativeInput as u32,
+        3925386672
+    );
+}
+
+#[test]
+fn test_build_unified_spec_multiple_inner_types() {
+    // Test with multiple flattened inner error types
+    soroban_sdk_tools::__build_unified_spec! {
+        @name TestMultipleInner
+        @acc [
+            { name: MathError_DivisionByZero, code: 3922378893, doc: "division by zero" },
+            { name: MathError_NegativeInput, code: 3925386672, doc: "negative input" },
+            { name: CalcError_Overflow, code: 2570199786, doc: "overflow" },
+            { name: CalcError_Underflow, code: 2568683692, doc: "underflow" }
+        ]
+        @unit [
+            { name: Unauthorized, code: 1, doc: "unauthorized" },
+            { name: InvalidInput, code: 2, doc: "invalid input" },
+            { name: Aborted, code: 936, doc: "aborted" },
+            { name: UnknownError, code: 937, doc: "unknown error" }
+        ]
+        @pending []
+    }
+
+    use __scerr_unified_testmultipleinner::TestMultipleInner;
+
+    // Verify all unit variants
+    assert_eq!(TestMultipleInner::Unauthorized as u32, 1);
+    assert_eq!(TestMultipleInner::InvalidInput as u32, 2);
+    assert_eq!(TestMultipleInner::Aborted as u32, 936);
+    assert_eq!(TestMultipleInner::UnknownError as u32, 937);
+
+    // Verify all flattened MathError variants
+    assert_eq!(
+        TestMultipleInner::MathError_DivisionByZero as u32,
+        3922378893
+    );
+    assert_eq!(
+        TestMultipleInner::MathError_NegativeInput as u32,
+        3925386672
+    );
+
+    // Verify all flattened CalcError variants
+    assert_eq!(TestMultipleInner::CalcError_Overflow as u32, 2570199786);
+    assert_eq!(TestMultipleInner::CalcError_Underflow as u32, 2568683692);
+}
+
+#[test]
+fn test_build_unified_spec_codes_are_correct_combined_values() {
+    // Verify the flattened codes follow the expected formula:
+    // combined_code = (namespace << 22) | inner_code
+    //
+    // For MathError (namespace = 935):
+    //   DivisionByZero: (935 << 22) | 704653 = 3922378893
+    //   NegativeInput: (935 << 22) | 3712432 = 3925386672
+    //
+    // For CalcError (namespace = 612):
+    //   Overflow: (612 << 22) | 3285738 = 2570199786
+    //   Underflow: (612 << 22) | 1769644 = 2568683692
+
+    // Compute expected values
+    let math_namespace: u32 = 935;
+    let calc_namespace: u32 = 612;
+
+    let expected_math_div_zero = (math_namespace << 22) | 704653;
+    let expected_math_neg_input = (math_namespace << 22) | 3712432;
+    let expected_calc_overflow = (calc_namespace << 22) | 3285738;
+    let expected_calc_underflow = (calc_namespace << 22) | 1769644;
+
+    // Verify the expected values match the test constants
+    assert_eq!(expected_math_div_zero, 3922378893);
+    assert_eq!(expected_math_neg_input, 3925386672);
+    assert_eq!(expected_calc_overflow, 2570199786);
+    assert_eq!(expected_calc_underflow, 2568683692);
+}
