@@ -920,12 +920,12 @@ fn generate_from_arms_unit(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStrea
             let root_idx = info.code;
             if info.stores_code() {
                 if let Some(field) = info.field_ident() {
-                    quote! { #root_idx => Some(Self::#ident { #field: 0 }) }
+                    quote! { #root_idx => return Some(Self::#ident { #field: 0 }) }
                 } else {
-                    quote! { #root_idx => Some(Self::#ident(0)) }
+                    quote! { #root_idx => return Some(Self::#ident(0)) }
                 }
             } else {
-                quote! { #root_idx => Some(Self::#ident) }
+                quote! { #root_idx => return Some(Self::#ident) }
             }
         })
         .collect()
@@ -936,6 +936,9 @@ fn generate_from_arms_unit(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStrea
 /// Uses `TryFrom<InvokeError>` instead of `ContractError::from_code` so that
 /// both scerr types AND standard `#[contracterror]` types can be used with
 /// `#[from_contract_client]`. Both generate `TryFrom<InvokeError>` implementations.
+///
+/// Returns early with `Some` if decoding succeeds, otherwise falls through
+/// to allow passthrough decoding to be tried.
 fn generate_from_arms_wrapped(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
     infos
         .iter()
@@ -949,12 +952,28 @@ fn generate_from_arms_wrapped(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenSt
                 // Use TryFrom<InvokeError> which is implemented by both:
                 // - scerr types (via #[soroban_sdk::contracterror] that scerr generates)
                 // - standard #[contracterror] types (via soroban-sdk macro)
+                //
+                // Returns early if decoding succeeds, otherwise falls through.
+                // This allows passthrough to be tried even when namespace matches
+                // but inner decoding fails (e.g., namespace collision scenario).
                 let construct = if let Some(field) = info.field_ident() {
-                    quote! { <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(low)).ok().map(|inner| Self::#ident { #field: inner }) }
+                    quote! {
+                        #root_idx => {
+                            if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(low)) {
+                                return Some(Self::#ident { #field: inner });
+                            }
+                        }
+                    }
                 } else {
-                    quote! { <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(low)).ok().map(Self::#ident) }
+                    quote! {
+                        #root_idx => {
+                            if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(low)) {
+                                return Some(Self::#ident(inner));
+                            }
+                        }
+                    }
                 };
-                Some(quote! { #root_idx => #construct })
+                Some(construct)
             })
         })
         .collect()
@@ -1062,31 +1081,28 @@ fn generate_contract_error_impl_root(
                 if code == 0 { return None; }
 
                 let high = code >> #shift;
-                match high {
-                    0 => {
-                        // Unit variants only - match by full code
-                        let low = code;
-                        match low {
-                            #(#from_arms_unit,)*
-                            _ => None,
-                        }
-                    },
-                    _ => {
-                        // Wrapped variants - try namespace-based decoding first
-                        let low = code & #mask;
-                        match high {
-                            #(#from_arms_wrapped,)*
-                            _ => {
-                                // NESTED FCC PASSTHROUGH:
-                                // If namespace doesn't match any of our variants, the code
-                                // might be a passthrough from nested #[from_contract_client].
-                                // Try decoding the full code against each wrapped type.
-                                #(#from_passthrough)*
-                                None
-                            }
-                        }
+                if high == 0 {
+                    // Unit variants only - match by full code
+                    let low = code;
+                    match low {
+                        #(#from_arms_unit,)*
+                        _ => return None,
                     }
                 }
+
+                // Wrapped variants - try namespace-based decoding first
+                let low = code & #mask;
+                match high {
+                    #(#from_arms_wrapped)*
+                    _ => {}
+                }
+
+                // NESTED FCC PASSTHROUGH:
+                // If namespace-based decoding didn't succeed (either no match or
+                // inner type couldn't decode), try decoding the full code against
+                // each wrapped type. This handles nested #[from_contract_client].
+                #(#from_passthrough)*
+                None
             }
 
             fn description(&self) -> &'static str {
