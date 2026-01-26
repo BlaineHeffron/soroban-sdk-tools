@@ -1,12 +1,15 @@
 //! Implementation of the #[scerr] macro for generating Soroban contract error enums.
 //!
-//! This module provides the procedural macro logic for #[scerr] and #[scerr(root)],
-//! which generate error enums with unique u32 codes, conversion traits, and composable
-//! error handling.
+//! This module provides the procedural macro logic for #[scerr], which generates
+//! error enums with unique u32 codes, conversion traits, and composable error handling.
+//!
+//! The macro **auto-detects** whether to use basic or root mode based on the enum's
+//! variants. If any variant has special attributes (`#[transparent]`, `#[from_contract_client]`,
+//! `#[abort]`, `#[sentinel]`) or carries data, root mode is used automatically.
 //!
 //! ## Usage
 //!
-//! ### Basic Mode
+//! ### Simple Errors (auto-detected as basic mode)
 //!
 //! ```rust,ignore
 //! use soroban_sdk_tools::scerr;
@@ -21,10 +24,10 @@
 //! }
 //! ```
 //!
-//! ### Root Mode
+//! ### Composable Errors (auto-detected as root mode)
 //!
 //! ```rust,ignore
-//! #[scerr(mode="root")]
+//! #[scerr]
 //! pub enum AppError {
 //!     /// unauthorized operation
 //!     Unauthorized,
@@ -39,7 +42,7 @@
 //! }
 //! ```
 //!
-//! ### Options
+//! ### Options (for root mode)
 //!
 //! - `handle_abort = "auto" | "panic"`: Auto-add Aborted variant or panic on abort.
 //! - `handle_unknown = "auto" | "panic"`: Auto-add UnknownError variant or panic on unknown codes.
@@ -69,7 +72,7 @@
 //! }
 //!
 //! // Step 2: Use #[from_contract_client] with imported types
-//! #[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+//! #[scerr]
 //! pub enum MyError {
 //!     /// unauthorized operation
 //!     Unauthorized,
@@ -98,7 +101,7 @@
 //! ```rust,ignore
 //! use math_inner::MathError;  // From Cargo.toml dependency - NO unified enum
 //!
-//! #[scerr(mode = "root")]
+//! #[scerr]
 //! pub enum MyError {
 //!     #[from_contract_client]
 //!     Math(MathError),  // ❌ Only namespace markers in spec, not flattened variants
@@ -110,14 +113,14 @@
 //! ```rust,ignore
 //! use math_imported::MathError;  // ❌ Don't import, use full path instead
 //!
-//! #[scerr(mode = "root")]
+//! #[scerr]
 //! pub enum MyError {
 //!     #[from_contract_client]
 //!     Math(MathError),  // ❌ scerr can't derive getter macro path from 1-segment type
 //! }
 //!
 //! // ✅ Correct: use full path in enum definition
-//! #[scerr(mode = "root")]
+//! #[scerr]
 //! pub enum MyError {
 //!     #[from_contract_client]
 //!     Math(math_imported::MathError),  // ✅ Full path allows getter macro derivation
@@ -141,7 +144,7 @@ use syn::{
     Error, Expr, ExprLit, Fields, Ident, Lit, Type, Variant,
 };
 
-use crate::util::{collect_results, combine_errors};
+use crate::util::collect_results;
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -208,9 +211,6 @@ impl darling::FromMeta for PathList {
 #[derive(Debug, Default, FromMeta)]
 struct ScerrConfig {
     #[darling(default)]
-    mode: Option<String>,
-
-    #[darling(default)]
     handle_abort: Option<String>,
 
     #[darling(default)]
@@ -226,33 +226,49 @@ struct ScerrConfig {
     ///
     /// Example:
     /// ```ignore
-    /// #[scerr(mode = "root", mixins(math_module::__get_math_variants))]
+    /// #[scerr(mixins(math_module::__get_math_variants))]
     /// ```
     #[darling(default)]
     mixins: PathList,
 }
 
-/// Parse the #[scerr(...)] attribute to determine the config.
-fn parse_scerr_attr(attr: TokenStream) -> syn::Result<(ScerrMode, ScerrConfig)> {
+/// Parse the #[scerr(...)] attribute to extract config options.
+fn parse_scerr_attr(attr: TokenStream) -> syn::Result<ScerrConfig> {
     let ts2 = proc_macro2::TokenStream::from(attr);
     if ts2.is_empty() {
-        return Ok((ScerrMode::Basic, ScerrConfig::default()));
+        return Ok(ScerrConfig::default());
     }
     let meta_items = darling::ast::NestedMeta::parse_meta_list(ts2)
         .map_err(|e| Error::new(proc_macro2::Span::call_site(), e.to_string()))?;
     let config =
         ScerrConfig::from_list(&meta_items).map_err(|e| Error::new(e.span(), e.to_string()))?;
-    let mode = match config.mode.as_deref() {
-        None | Some("basic") => ScerrMode::Basic,
-        Some("root") => ScerrMode::Root,
-        Some(other) => {
-            return Err(Error::new(
-                proc_macro2::Span::call_site(),
-                format!("unknown mode: {}", other),
-            ))
-        }
-    };
-    Ok((mode, config))
+    Ok(config)
+}
+
+/// Detect if a variant requires root mode based on its attributes.
+fn variant_requires_root(variant: &Variant) -> bool {
+    // Check for root-mode-only attributes
+    let has_root_attr = variant.attrs.iter().any(|a| {
+        a.path().is_ident("transparent")
+            || a.path().is_ident("from_contract_client")
+            || a.path().is_ident("abort")
+            || a.path().is_ident("sentinel")
+    });
+
+    // Check for non-unit variants (data-carrying)
+    let has_fields = !matches!(variant.fields, Fields::Unit);
+
+    has_root_attr || has_fields
+}
+
+/// Auto-detect mode based on enum variants.
+/// Returns Root mode if any variant has root-mode attributes or carries data.
+fn detect_mode(data: &DataEnum) -> ScerrMode {
+    if data.variants.iter().any(variant_requires_root) {
+        ScerrMode::Root
+    } else {
+        ScerrMode::Basic
+    }
 }
 
 /// Extract doc comment attributes from a list of attributes.
@@ -775,28 +791,6 @@ fn validate_root_variants(infos: &[VariantInfo]) -> syn::Result<()> {
     Ok(())
 }
 
-/// Validate that #[from_contract_client] variants are consistent with wasm paths.
-/// Validate all variants based on the mode.
-fn validate_variants(infos: &[VariantInfo], mode: ScerrMode) -> syn::Result<()> {
-    let errors: Vec<Error> = infos
-        .iter()
-        .filter_map(|info| match (mode, &info.kind) {
-            (ScerrMode::Basic, VariantKind::PlainUnit) => None,
-            (ScerrMode::Basic, _) => Some(Error::new(
-                info.ident.span(),
-                "Non-unit variants not supported in basic mode. Use #[scerr(root)]",
-            )),
-            (ScerrMode::Root, _) => None,
-        })
-        .collect();
-
-    if !errors.is_empty() {
-        return Err(combine_errors(errors));
-    }
-
-    Ok(())
-}
-
 // -----------------------------------------------------------------------------
 // Code Generation Helpers
 // -----------------------------------------------------------------------------
@@ -872,10 +866,35 @@ fn generate_into_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
                 // Use Error::get_code() which works for both:
                 // - Both types implement From<T> for Error
                 // - Error::get_code() returns the contract error code
+                //
+                // NESTED FCC SUPPORT:
+                // If the inner code already has namespace bits set (from nested #[from_contract_client]),
+                // we pass it through directly instead of re-namespacing. This prevents overflow
+                // when wrapping errors that themselves wrap other errors.
                 if let Some(field) = info.field_ident() {
-                    quote! { Self::#ident { #field: inner } => (#root_idx << #shift) | soroban_sdk::Error::from(inner).get_code() }
+                    quote! {
+                        Self::#ident { #field: inner } => {
+                            let inner_code = soroban_sdk::Error::from(inner).get_code();
+                            // If inner code has namespace bits set, pass through directly
+                            if (inner_code >> #shift) != 0 {
+                                inner_code
+                            } else {
+                                (#root_idx << #shift) | inner_code
+                            }
+                        }
+                    }
                 } else {
-                    quote! { Self::#ident(inner) => (#root_idx << #shift) | soroban_sdk::Error::from(inner).get_code() }
+                    quote! {
+                        Self::#ident(inner) => {
+                            let inner_code = soroban_sdk::Error::from(inner).get_code();
+                            // If inner code has namespace bits set, pass through directly
+                            if (inner_code >> #shift) != 0 {
+                                inner_code
+                            } else {
+                                (#root_idx << #shift) | inner_code
+                            }
+                        }
+                    }
                 }
             } else if info.field_ty().is_some() {
                 // Other wrapped variants (shouldn't reach here normally)
@@ -941,6 +960,40 @@ fn generate_from_arms_wrapped(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenSt
         .collect()
 }
 
+/// Generate passthrough arms for `from_code` to handle nested FCC.
+///
+/// When a code doesn't match any known namespace, try decoding the full code
+/// against each wrapped type. This handles cases where a nested FCC error
+/// was passed through without re-namespacing.
+fn generate_from_passthrough(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
+    infos
+        .iter()
+        .filter_map(|info| {
+            info.field_ty().and_then(|ty| {
+                if info.is_sentinel() {
+                    return None;
+                }
+                let ident = &info.ident;
+                // Try to decode the full code (passthrough case for nested FCC)
+                let construct = if let Some(field) = info.field_ident() {
+                    quote! {
+                        if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(code)) {
+                            return Some(Self::#ident { #field: inner });
+                        }
+                    }
+                } else {
+                    quote! {
+                        if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(code)) {
+                            return Some(Self::#ident(inner));
+                        }
+                    }
+                };
+                Some(construct)
+            })
+        })
+        .collect()
+}
+
 /// Generate match arms for `description` method.
 fn generate_desc_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
     infos
@@ -994,6 +1047,7 @@ fn generate_contract_error_impl_root(
     let into_arms = generate_into_arms(infos);
     let from_arms_unit = generate_from_arms_unit(infos);
     let from_arms_wrapped = generate_from_arms_wrapped(infos);
+    let from_passthrough = generate_from_passthrough(infos);
     let desc_arms = generate_desc_arms(infos);
 
     quote! {
@@ -1018,11 +1072,18 @@ fn generate_contract_error_impl_root(
                         }
                     },
                     _ => {
-                        // Wrapped variants only - match by high bits (root index)
+                        // Wrapped variants - try namespace-based decoding first
                         let low = code & #mask;
                         match high {
                             #(#from_arms_wrapped,)*
-                            _ => None,
+                            _ => {
+                                // NESTED FCC PASSTHROUGH:
+                                // If namespace doesn't match any of our variants, the code
+                                // might be a passthrough from nested #[from_contract_client].
+                                // Try decoding the full code against each wrapped type.
+                                #(#from_passthrough)*
+                                None
+                            }
                         }
                     }
                 }
@@ -1753,24 +1814,20 @@ fn expand_scerr_basic(
 
 /// Main entry point for the #[scerr] macro.
 pub fn scerr_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let (mode, config) = match parse_scerr_attr(attr) {
-        Ok((m, c)) => (m, c),
+    let config = match parse_scerr_attr(attr) {
+        Ok(c) => c,
         Err(e) => return e.to_compile_error().into(),
     };
 
     let input = parse_macro_input!(item as DeriveInput);
 
-    match expand_scerr(mode, input, &config) {
+    match expand_scerr(input, &config) {
         Ok(ts) => TokenStream::from(ts),
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn expand_scerr(
-    mode: ScerrMode,
-    input: DeriveInput,
-    config: &ScerrConfig,
-) -> syn::Result<proc_macro2::TokenStream> {
+fn expand_scerr(input: DeriveInput, config: &ScerrConfig) -> syn::Result<proc_macro2::TokenStream> {
     let data_enum = match &input.data {
         Data::Enum(e) => e,
         _ => {
@@ -1781,9 +1838,10 @@ fn expand_scerr(
         }
     };
 
-    let infos = collect_variant_infos(data_enum, &input.ident, mode)?;
+    // Auto-detect mode based on variant attributes and fields
+    let mode = detect_mode(data_enum);
 
-    validate_variants(&infos, mode)?;
+    let infos = collect_variant_infos(data_enum, &input.ident, mode)?;
 
     if mode == ScerrMode::Root {
         validate_root_variants(&infos)?;
@@ -1811,18 +1869,80 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_variants_basic_non_unit() {
-        let info = VariantInfo {
-            ident: parse_quote!(Test),
-            code: 1,
-            description: "test".to_string(),
-            kind: VariantKind::Transparent {
-                field_ty: parse_quote!(u32),
-                field_ident: None,
-                has_from: false,
-            },
+    fn test_detect_mode_basic_for_unit_variants() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, B, C }
         };
-        let err = validate_variants(&[info], ScerrMode::Basic).unwrap_err();
-        assert!(err.to_string().contains("Non-unit variants not supported"));
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Basic);
+    }
+
+    #[test]
+    fn test_detect_mode_root_for_data_variant() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, B(u32) }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Root);
+    }
+
+    #[test]
+    fn test_detect_mode_root_for_transparent_attr() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, #[transparent] B(SomeError) }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Root);
+    }
+
+    #[test]
+    fn test_detect_mode_root_for_fcc_attr() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, #[from_contract_client] B(SomeError) }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Root);
+    }
+
+    #[test]
+    fn test_detect_mode_root_for_abort_attr() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, #[abort] Aborted }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Root);
+    }
+
+    #[test]
+    fn test_detect_mode_root_for_sentinel_attr() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test { A, #[sentinel] Unknown }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+        assert_eq!(detect_mode(&data), ScerrMode::Root);
     }
 }

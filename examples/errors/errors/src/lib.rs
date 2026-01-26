@@ -23,7 +23,8 @@ mod external {
         }
     }
 }
-#[scerr(mode = "root")]
+// Mode is auto-detected due to #[from_contract_client] attribute
+#[scerr]
 pub enum Error {
     /// unauthorized
     Unauthorized,

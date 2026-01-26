@@ -90,7 +90,8 @@ pub fn scerr(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     );
 /// }
 ///
-/// #[scerr(mode = "root")]
+/// // Mode is auto-detected due to #[from_contract_client] attribute
+/// #[scerr]
 /// pub enum AppError {
 ///     Unauthorized,
 ///

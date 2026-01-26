@@ -87,7 +87,7 @@ impl Logic {
 // Outer contract with mixed usage
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root")]
+#[scerr]
 pub enum OuterError {
     /// unauthorized
     Unauthorized,
@@ -358,7 +358,7 @@ fn transparent_propagates_with_question_mark() {
 // Test case for root-to-root collision via from_contract_client
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root")]
+#[scerr]
 pub enum InnerRootError {
     /// inner unauthorized
     InnerUnauthorized,
@@ -380,7 +380,7 @@ impl InnerRoot {
     }
 }
 
-#[scerr(mode = "root")]
+#[scerr]
 pub enum OuterRootError {
     /// outer unauthorized
     OuterUnauthorized,
@@ -652,7 +652,7 @@ fn from_code_doesnt_match_wrong_namespace() {
 // Test: Auto-generated abort and unknown handlers
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum AutoError {
     InvalidInput,
     #[from_contract_client]
@@ -691,7 +691,7 @@ fn test_auto_unknown_handler() {
 // Test: Error logging with sentinel
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root", handle_unknown = "auto", log_unknown_errors = true)]
+#[scerr(handle_unknown = "auto", log_unknown_errors = true)]
 pub enum LoggingError {
     InvalidInput,
 
@@ -743,7 +743,7 @@ fn test_logging_unknown_errors() {
 // Test: Panic mode (default behavior)
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root")] // Default: both handle_abort and handle_unknown = "panic"
+#[scerr] // Default: both handle_abort and handle_unknown = "panic"
 pub enum PanicError {
     InvalidInput,
 
@@ -769,7 +769,7 @@ impl PanicContract {
 // Test: Sentinel without code storage
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root")]
+#[scerr]
 pub enum SimpleSentinelError {
     InvalidInput,
 
@@ -790,7 +790,7 @@ fn test_simple_sentinel() {
 // Test: Mixed transparent and from_contract_client
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum MixedError {
     InvalidInput,
 
@@ -930,7 +930,7 @@ impl StandardContract {
 // Test: #[from_contract_client] with standard #[contracterror]
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum FccStandardError {
     /// unauthorized operation
     Unauthorized,
@@ -1018,7 +1018,7 @@ fn test_fcc_standard_error_code_roundtrip() {
 // Test: #[transparent] with standard #[contracterror]
 // -----------------------------------------------------------------------------
 
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum TransparentStandardError {
     /// unauthorized operation
     Unauthorized,
@@ -1268,7 +1268,7 @@ impl StorageContract {
 /// - StandardError: standard contracterror
 /// - StorageError: another standard contracterror
 /// - LogicError: scerr type
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum MixedFccError {
     /// operation not permitted
     NotPermitted,
