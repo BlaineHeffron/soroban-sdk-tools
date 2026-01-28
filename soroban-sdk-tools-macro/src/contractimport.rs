@@ -1,9 +1,10 @@
 //! Implementation of the contractimport! macro.
 //!
-//! This macro wraps soroban_sdk::contractimport! and additionally generates
-//! `SequentialError` and `ContractErrorSpec` implementations for imported error types,
-//! enabling them to be used as inner types in `#[scerr]` root enums with
-//! `#[transparent]` or `#[from_contract_client]` attributes.
+//! This macro wraps soroban_sdk::contractimport! and additionally generates:
+//! - `SequentialError` and `ContractErrorSpec` implementations for imported error types,
+//!   enabling them to be used as inner types in `#[scerr]` root enums with
+//!   `#[transparent]` or `#[from_contract_client]` attributes
+//! - AuthClient for simplified authorization testing (when testutils feature enabled)
 
 use darling::FromMeta;
 use proc_macro::TokenStream;
@@ -12,7 +13,7 @@ use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
 use std::fs;
-use stellar_xdr::curr::ScSpecEntry;
+use stellar_xdr::curr::{ScSpecEntry, ScSpecTypeDef};
 use syn::Error;
 
 use crate::util::abs_from_rel_to_manifest;
@@ -62,6 +63,343 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
 ///
 /// Uses 1-based sequential codes (matching variant position) rather than
 /// native error codes, consistent with `#[scerr]` basic mode.
+
+// -----------------------------------------------------------------------------
+// Function Extraction (for AuthClient generation)
+// -----------------------------------------------------------------------------
+
+/// Information about a contract function extracted from WASM spec.
+#[derive(Debug)]
+struct FunctionInfo {
+    name: String,
+    inputs: Vec<FunctionInputInfo>,
+    outputs: Vec<ScSpecTypeDef>,
+    doc: String,
+}
+
+/// Information about a function input parameter.
+#[derive(Debug)]
+struct FunctionInputInfo {
+    name: String,
+    type_def: ScSpecTypeDef,
+}
+
+/// Extract function information from WASM spec entries.
+fn extract_functions(specs: &[ScSpecEntry]) -> Vec<FunctionInfo> {
+    specs
+        .iter()
+        .filter_map(|entry| match entry {
+            ScSpecEntry::FunctionV0(f) => Some(FunctionInfo {
+                name: f.name.to_utf8_string_lossy(),
+                inputs: f
+                    .inputs
+                    .iter()
+                    .map(|i| FunctionInputInfo {
+                        name: i.name.to_utf8_string_lossy(),
+                        type_def: i.type_.clone(),
+                    })
+                    .collect(),
+                outputs: f.outputs.iter().cloned().collect(),
+                doc: f.doc.to_utf8_string_lossy(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Convert ScSpecTypeDef to Rust type tokens.
+fn spec_type_to_rust_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
+    match type_def {
+        ScSpecTypeDef::Val => quote! { soroban_sdk::Val },
+        ScSpecTypeDef::Bool => quote! { bool },
+        ScSpecTypeDef::Void => quote! { () },
+        ScSpecTypeDef::Error => quote! { soroban_sdk::Error },
+        ScSpecTypeDef::U32 => quote! { u32 },
+        ScSpecTypeDef::I32 => quote! { i32 },
+        ScSpecTypeDef::U64 => quote! { u64 },
+        ScSpecTypeDef::I64 => quote! { i64 },
+        ScSpecTypeDef::Timepoint => quote! { soroban_sdk::Timepoint },
+        ScSpecTypeDef::Duration => quote! { soroban_sdk::Duration },
+        ScSpecTypeDef::U128 => quote! { u128 },
+        ScSpecTypeDef::I128 => quote! { i128 },
+        ScSpecTypeDef::U256 => quote! { soroban_sdk::U256 },
+        ScSpecTypeDef::I256 => quote! { soroban_sdk::I256 },
+        ScSpecTypeDef::Bytes => quote! { soroban_sdk::Bytes },
+        ScSpecTypeDef::String => quote! { soroban_sdk::String },
+        ScSpecTypeDef::Symbol => quote! { soroban_sdk::Symbol },
+        ScSpecTypeDef::Address => quote! { soroban_sdk::Address },
+        ScSpecTypeDef::MuxedAddress => quote! { soroban_sdk::Address },
+        ScSpecTypeDef::Option(inner) => {
+            let inner_ty = spec_type_to_rust_type(&inner.value_type);
+            quote! { Option<#inner_ty> }
+        }
+        ScSpecTypeDef::Result(inner) => {
+            let ok_ty = spec_type_to_rust_type(&inner.ok_type);
+            let err_ty = spec_type_to_rust_type(&inner.error_type);
+            quote! { Result<#ok_ty, #err_ty> }
+        }
+        ScSpecTypeDef::Vec(inner) => {
+            let elem_ty = spec_type_to_rust_type(&inner.element_type);
+            quote! { soroban_sdk::Vec<#elem_ty> }
+        }
+        ScSpecTypeDef::Map(inner) => {
+            let key_ty = spec_type_to_rust_type(&inner.key_type);
+            let val_ty = spec_type_to_rust_type(&inner.value_type);
+            quote! { soroban_sdk::Map<#key_ty, #val_ty> }
+        }
+        ScSpecTypeDef::Tuple(inner) => {
+            let types: Vec<_> = inner
+                .value_types
+                .iter()
+                .map(spec_type_to_rust_type)
+                .collect();
+            quote! { (#(#types),*) }
+        }
+        ScSpecTypeDef::BytesN(inner) => {
+            let n = inner.n;
+            quote! { soroban_sdk::BytesN<#n> }
+        }
+        ScSpecTypeDef::Udt(inner) => {
+            // UDT types are defined in the same module
+            let name = format_ident!("{}", inner.name.to_utf8_string_lossy());
+            quote! { #name }
+        }
+    }
+}
+
+/// Unwrap a Result type to get the Ok type.
+/// The standard Client methods return the Ok type (not the full Result).
+fn unwrap_result_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
+    match type_def {
+        ScSpecTypeDef::Result(inner) => spec_type_to_rust_type(&inner.ok_type),
+        _ => spec_type_to_rust_type(type_def),
+    }
+}
+
+/// Generate the expression to pass an argument to mock_auth.
+///
+/// This handles the different ownership semantics for various types:
+/// - Copy types (primitives): dereference with `*`
+/// - Clone types (heap/complex): clone with `.clone()`
+/// - Void: use unit `()`
+fn generate_arg_expr(
+    name: &proc_macro2::Ident,
+    type_def: &ScSpecTypeDef,
+) -> proc_macro2::TokenStream {
+    match type_def {
+        // Copy types - dereference
+        ScSpecTypeDef::Bool
+        | ScSpecTypeDef::U32
+        | ScSpecTypeDef::I32
+        | ScSpecTypeDef::U64
+        | ScSpecTypeDef::I64
+        | ScSpecTypeDef::U128
+        | ScSpecTypeDef::I128 => quote! { *#name },
+
+        // Void - use unit
+        ScSpecTypeDef::Void => quote! { () },
+
+        // All other types need to be cloned
+        // This includes: Address, Bytes, String, Symbol, Vec, Map, BytesN,
+        // Udt, Val, Error, Timepoint, Duration, U256, I256, Option, Result, Tuple
+        _ => quote! { #name.clone() },
+    }
+}
+
+/// Generate the AuthClient struct and implementation.
+fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream {
+    // Generate wrapper methods for each function
+    let methods: Vec<_> = functions.iter().map(generate_auth_client_method).collect();
+
+    quote! {
+        #[cfg(test)]
+        extern crate alloc as __alloc;
+
+        /// Auth-testing wrapper client for simplified authorization testing.
+        ///
+        /// This client wraps the standard `Client` and provides methods that
+        /// return a `CallBuilder` for fluent authorization setup.
+        ///
+        /// # Example
+        ///
+        /// ```ignore
+        /// let client = AuthClient::new(&env, &contract_id);
+        /// let user = Address::generate(&env);
+        ///
+        /// // Builder pattern: method -> authorize -> invoke
+        /// client.my_method(&user, &args).authorize(&user).invoke();
+        ///
+        /// // Multiple authorizers
+        /// client.withdraw(&signers, &recipient, &amount)
+        ///     .authorize(&signer1)
+        ///     .authorize(&signer2)
+        ///     .invoke();
+        /// ```
+        #[cfg(test)]
+        pub struct AuthClient<'a> {
+            inner: Client<'a>,
+        }
+
+        #[cfg(test)]
+        impl<'a> AuthClient<'a> {
+            /// Create a new AuthClient wrapping a contract at the given address.
+            pub fn new(env: &'a soroban_sdk::Env, address: &'a soroban_sdk::Address) -> Self {
+                Self {
+                    inner: Client::new(env, address),
+                }
+            }
+
+            /// Get a reference to the inner client.
+            pub fn inner(&self) -> &Client<'a> {
+                &self.inner
+            }
+
+            /// Get the environment reference.
+            pub fn env(&self) -> &soroban_sdk::Env {
+                &self.inner.env
+            }
+
+            /// Get the contract address.
+            pub fn address(&self) -> &soroban_sdk::Address {
+                &self.inner.address
+            }
+
+            #(#methods)*
+        }
+    }
+}
+
+/// Generate a wrapper method for AuthClient that returns a CallBuilder.
+fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream {
+    let fn_name = format_ident!("{}", func.name);
+    let fn_name_str = &func.name;
+    let doc = &func.doc;
+
+    // Generate parameter list with explicit lifetime
+    let params: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| {
+            let name = format_ident!("{}", input.name);
+            let ty = spec_type_to_rust_type(&input.type_def);
+            quote! { #name: &'b #ty }
+        })
+        .collect();
+
+    // Generate argument names for the inner call (cloned for the closure)
+    let arg_clones: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| {
+            let name = format_ident!("{}", input.name);
+            let clone_name = format_ident!("{}_clone", input.name);
+            generate_clone_stmt(&name, &clone_name, &input.type_def)
+        })
+        .collect();
+
+    // Generate the cloned argument names for the closure call
+    let clone_names: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| format_ident!("{}_clone", input.name))
+        .collect();
+
+    // Generate args tuple for mock auth
+    // Note: Single-element tuples need a trailing comma: (a,) not (a)
+    let args_tuple: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| {
+            let name = format_ident!("{}", input.name);
+            generate_arg_expr(&name, &input.type_def)
+        })
+        .collect();
+
+    // Build the args tuple expression with proper trailing comma handling
+    let args_tuple_expr = if args_tuple.is_empty() {
+        quote! { () }
+    } else if args_tuple.len() == 1 {
+        let arg = &args_tuple[0];
+        quote! { (#arg,) }
+    } else {
+        quote! { (#(#args_tuple),*) }
+    };
+
+    // Generate return type
+    // Note: The standard Client unwraps Result types - if the output is Result<T, E>,
+    // the method returns T (and panics on error). We follow the same convention.
+    let return_ty = if func.outputs.is_empty() {
+        quote! { () }
+    } else if func.outputs.len() == 1 {
+        unwrap_result_type(&func.outputs[0])
+    } else {
+        let types: Vec<_> = func.outputs.iter().map(unwrap_result_type).collect();
+        quote! { (#(#types),*) }
+    };
+
+    quote! {
+        #[doc = #doc]
+        pub fn #fn_name<'b>(&'b self, #(#params),*) -> soroban_sdk_tools::auth::CallBuilder<'b, #return_ty>
+        where
+            'a: 'b,
+        {
+            use soroban_sdk::IntoVal;
+
+            // Convert args to Vec<Val> for mock auth
+            let args: soroban_sdk::Vec<soroban_sdk::Val> = #args_tuple_expr.into_val(&self.inner.env);
+
+            // Clone args for the closure (closure needs owned values)
+            #(#arg_clones)*
+
+            // Create the invoker closure
+            let inner = &self.inner;
+            let invoker = __alloc::boxed::Box::new(move || {
+                inner.#fn_name(#(&#clone_names),*)
+            });
+
+            soroban_sdk_tools::auth::CallBuilder::new(
+                &self.inner.env,
+                &self.inner.address,
+                #fn_name_str,
+                args,
+                invoker,
+            )
+        }
+    }
+}
+
+/// Generate a clone statement for a parameter.
+fn generate_clone_stmt(
+    name: &proc_macro2::Ident,
+    clone_name: &proc_macro2::Ident,
+    type_def: &ScSpecTypeDef,
+) -> proc_macro2::TokenStream {
+    match type_def {
+        // Copy types - just copy
+        ScSpecTypeDef::Bool
+        | ScSpecTypeDef::U32
+        | ScSpecTypeDef::I32
+        | ScSpecTypeDef::U64
+        | ScSpecTypeDef::I64
+        | ScSpecTypeDef::U128
+        | ScSpecTypeDef::I128 => quote! { let #clone_name = *#name; },
+
+        // Void - use unit
+        ScSpecTypeDef::Void => quote! { let #clone_name = (); },
+
+        // All other types need to be cloned
+        _ => quote! { let #clone_name = #name.clone(); },
+    }
+}
+
+// Note: try_ methods are not generated for AuthClient.
+// Users can access them via `client.inner().try_method_name()` if needed.
+// This avoids complex generic signature generation that depends on the specific
+// error types defined in the contract.
+
+// -----------------------------------------------------------------------------
+// Error Spec Generation
+// -----------------------------------------------------------------------------
 fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
     variants
         .iter()
@@ -251,8 +589,9 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         }
     };
 
-    // Extract error enums
+    // Extract error enums and functions from spec
     let error_enums = extract_error_enums(&specs);
+    let functions = extract_functions(&specs);
 
     // Generate the standard contractimport! code using soroban-spec-rust
     let standard_import =
@@ -276,6 +615,9 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         .map(generate_sequential_error_impl)
         .collect();
 
+    // Generate AuthClient for simplified auth testing
+    let auth_client = generate_auth_client(&functions);
+
     let output = quote! {
         #standard_import
 
@@ -287,6 +629,9 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
 
         // SequentialError implementations for imported error types
         #(#seq_impls)*
+
+        // AuthClient for simplified authorization testing
+        #auth_client
     };
 
     output.into()

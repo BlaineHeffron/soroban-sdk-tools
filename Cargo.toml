@@ -4,6 +4,7 @@ members = [
     "soroban-sdk-tools-macro",
     "examples/*/Cargo.toml",
     "examples/errors/*",
+    "examples/auth/*",
 ]
 resolver = "2"
 

@@ -18,7 +18,7 @@ pub mod error;
 pub mod key;
 pub mod storage;
 
-#[cfg(any(test, feature = "testutils"))]
+// Auth module is always exported but its contents are gated by testutils
 pub mod auth;
 
 // Re-export commonly used types
@@ -29,4 +29,4 @@ pub use storage::{
 };
 
 #[cfg(any(test, feature = "testutils"))]
-pub use auth::ContractClientExt;
+pub use auth::setup_mock_auth;
