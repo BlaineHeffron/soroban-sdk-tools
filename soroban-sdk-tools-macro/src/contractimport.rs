@@ -20,12 +20,12 @@ use crate::util::abs_from_rel_to_manifest;
 const NAMESPACE_HASH_SEED: u32 = 5381;
 
 /// Number of bits for namespace (top bits of u32 error code)
-/// Using 10 bits gives 1024 possible namespaces, reducing collision risk
-const NAMESPACE_BITS: u32 = 10;
-const NAMESPACE_MAX: u32 = (1 << NAMESPACE_BITS) - 1; // 1023
+/// Using 22 bits gives ~4 million possible namespaces, reducing collision risk
+const NAMESPACE_BITS: u32 = 22;
+const NAMESPACE_MAX: u32 = (1 << NAMESPACE_BITS) - 1; // 4194303
 
 /// Number of bits for inner error codes (lower bits)
-const INNER_BITS: u32 = 32 - NAMESPACE_BITS; // 22 bits
+const INNER_BITS: u32 = 32 - NAMESPACE_BITS; // 10 bits = 1024 inner codes per namespace
 
 /// Compute namespace from variant name using DJB2 hash.
 /// Must match scerr's namespace computation exactly.

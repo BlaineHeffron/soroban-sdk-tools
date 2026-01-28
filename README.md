@@ -373,12 +373,12 @@ pub enum AppError {
 #### Architecture: 10/22 Bit Split
 
 Advanced mode (auto-detected when using composable errors) uses a 10/22 bit split to prevent code collisions:
-- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use codes 1-1023 (high 10 bits = 0)
-- **Wrapped variants** (e.g., `Math(MathError)`): Use high 10 bits for namespace (1-1023), low 22 bits for inner error code
+- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use sequential codes 1-1023 (low 10 bits)
+- **Wrapped variants** (e.g., `Math(MathError)`): Use high 22 bits for namespace (~4 million values), low 10 bits for inner error code (up to 1024 codes per namespace)
 
-Namespaces are assigned using a hash of the variant name (`hash(variant_name) % 1023 + 1`), ensuring deterministic and collision-resistant assignment across contracts.
+Namespaces are assigned using a hash of the type name (`hash(type_name) % 4194303 + 1`), ensuring deterministic and collision-resistant assignment across contracts.
 
-This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `namespace << 22 | inner_code`).
+This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `namespace << 10 | inner_code`).
 
 #### Mixed Usage Example
 

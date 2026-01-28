@@ -129,8 +129,8 @@
 //!
 //! ## Architecture
 //!
-//! - **22/10 Split**: Root enums use the top 10 bits for namespace (1024 possible values).
-//!   Inner errors use the lower 22 bits.
+//! - **10/22 Split**: Root enums use the top 22 bits for namespace (~4 million possible values).
+//!   Inner errors use the lower 10 bits (1024 codes per namespace).
 //! - **Namespace computation**: Namespaces are computed from the error TYPE name (e.g., "MathError")
 //!   using DJB2 hash for deterministic, collision-resistant assignment.
 //! - **Code 0 is reserved**: Hashes ensure generated codes are never 0.
@@ -151,13 +151,13 @@ use crate::util::collect_results;
 // -----------------------------------------------------------------------------
 
 /// Number of bits for namespace (top bits of u32 error code)
-/// Using 10 bits gives 1024 possible namespaces, reducing collision risk
-const ROOT_BITS: u32 = 10;
-const ROOT_MAX: u32 = (1 << ROOT_BITS) - 1; // 1023
+/// Using 22 bits gives ~4 million possible namespaces, reducing collision risk
+const ROOT_BITS: u32 = 22;
+const ROOT_MAX: u32 = (1 << ROOT_BITS) - 1; // 4194303
 
 /// Number of bits for inner error codes (lower bits)
-const INNER_BITS: u32 = 32 - ROOT_BITS; // 22 bits
-const INNER_MASK: u32 = (1 << INNER_BITS) - 1; // 0x003FFFFF
+const INNER_BITS: u32 = 32 - ROOT_BITS; // 10 bits = 1024 inner codes per namespace
+const INNER_MASK: u32 = (1 << INNER_BITS) - 1; // 0x000003FF
 
 // Ensure we don't return 0 from hashes, as 0 is reserved for Abort/System
 const HASH_SEED: u32 = 5381;
@@ -669,20 +669,28 @@ fn parse_explicit_discriminant(variant: &Variant) -> syn::Result<Option<u32>> {
 }
 
 /// Validate a code in root mode.
+///
+/// - Unit variants: must fit in INNER_BITS (1-1023)
+/// - Wrapped variants: namespace must fit in ROOT_BITS (1-4194303)
 fn validate_root_code(code: u32, variant: &Variant) -> syn::Result<()> {
     if code == 0 {
         return Err(Error::new(
             variant.span(),
-            "Error code 0 is reserved for system errors. Root mode variants must use codes 1-255.",
+            "Error code 0 is reserved for system errors.",
         ));
     }
-    if code > ROOT_MAX {
+
+    let is_wrapped = is_wrapped_variant(variant);
+    let max_value = if is_wrapped { ROOT_MAX } else { INNER_MASK };
+    let bit_count = if is_wrapped { ROOT_BITS } else { INNER_BITS };
+
+    if code > max_value {
         return Err(Error::new(
             variant.span(),
             format!(
-                "Root mode error variant index {} exceeds maximum of {} ({}-bit limit). \
+                "Root mode error variant code {} exceeds maximum of {} ({}-bit limit). \
                 Consider splitting into multiple error enums or reducing variant count.",
-                code, ROOT_MAX, ROOT_BITS
+                code, max_value, bit_count
             ),
         ));
     }
@@ -1389,13 +1397,25 @@ fn handle_auto_variants(
         ));
     }
 
-    let mut next_code = infos.iter().map(|i| i.code).max().unwrap_or(0) + 1;
+    // Only consider unit variant codes (not wrapped variant namespaces) for sequential assignment.
+    // Wrapped variants use hash-based namespaces which can be very large.
+    let mut next_code = infos
+        .iter()
+        .filter(|i| i.field_ty().is_none())
+        .map(|i| i.code)
+        .max()
+        .unwrap_or(0)
+        + 1;
 
     if handle_abort == "auto" && !has_abort {
-        if next_code > ROOT_MAX {
+        if next_code > INNER_MASK {
             return Err(Error::new(
                 input.span(),
-                "Too many error variants for root mode",
+                format!(
+                    "Too many unit error variants for root mode. \
+                     Unit variants must fit in {} bits (max {}).",
+                    INNER_BITS, INNER_MASK
+                ),
             ));
         }
         add_auto_abort_variant(&mut infos, next_code, input)?;
@@ -1403,10 +1423,14 @@ fn handle_auto_variants(
     }
 
     if handle_unknown == "auto" && !has_sentinel {
-        if next_code > ROOT_MAX {
+        if next_code > INNER_MASK {
             return Err(Error::new(
                 input.span(),
-                "Too many error variants for root mode",
+                format!(
+                    "Too many unit error variants for root mode. \
+                     Unit variants must fit in {} bits (max {}).",
+                    INNER_BITS, INNER_MASK
+                ),
             ));
         }
         add_auto_unknown_variant(&mut infos, next_code, log_unknown_errors, input)?;

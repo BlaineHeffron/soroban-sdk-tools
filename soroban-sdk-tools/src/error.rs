@@ -6,6 +6,32 @@
 // Re-export contracterror for users
 pub use soroban_sdk::contracterror;
 
+// -----------------------------------------------------------------------------
+// Bit Allocation Constants
+// -----------------------------------------------------------------------------
+// These constants define the error code structure for composable errors.
+// The 32-bit error code is split into namespace (high bits) and inner code (low bits).
+//
+// IMPORTANT: These values must match the constants in soroban-sdk-tools-macro/src/error.rs
+// and soroban-sdk-tools-macro/src/contractimport.rs
+
+/// Number of bits for namespace (top bits of u32 error code).
+/// Using 22 bits gives ~4 million possible namespaces, reducing collision risk.
+pub const NAMESPACE_BITS: u32 = 22;
+
+/// Maximum namespace value (2^22 - 1 = 4194303).
+pub const NAMESPACE_MAX: u32 = (1 << NAMESPACE_BITS) - 1;
+
+/// Number of bits for inner error codes (lower bits).
+/// Using 10 bits gives 1024 codes per namespace.
+pub const INNER_BITS: u32 = 32 - NAMESPACE_BITS;
+
+/// Maximum inner code value (2^10 - 1 = 1023).
+pub const INNER_MAX: u32 = (1 << INNER_BITS) - 1;
+
+/// Mask for extracting inner code from combined error code.
+pub const INNER_MASK: u32 = INNER_MAX;
+
 /// Base trait for contract errors
 pub trait ContractError: Sized {
     /// Convert this error into a u32 code
