@@ -28,7 +28,6 @@ darling = "0.23.0"
 soroban-spec = "23.4.1"
 soroban-spec-rust = "23.4.1"
 stellar-xdr = { version = "=23.0.0", default-features = false, features = ["curr"] }
-paste = "1.0"
 
 
 # [profile.release]

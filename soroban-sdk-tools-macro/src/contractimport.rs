@@ -1,8 +1,9 @@
-//! Implementation of the contractimport_with_errors! macro.
+//! Implementation of the contractimport! macro.
 //!
 //! This macro wraps soroban_sdk::contractimport! and additionally generates
-//! getter macros that enable scerr to flatten inner error types into the outer
-//! contract's unified error spec.
+//! `ContractError` and `ContractErrorSpec` implementations for imported error types,
+//! enabling them to be used as inner types in `#[scerr]` root enums with
+//! `#[transparent]` or `#[from_contract_client]` attributes.
 
 use darling::FromMeta;
 use proc_macro::TokenStream;
@@ -15,28 +16,6 @@ use stellar_xdr::curr::ScSpecEntry;
 use syn::Error;
 
 use crate::util::abs_from_rel_to_manifest;
-
-/// Hash seed for namespace computation (must match scerr's HASH_SEED)
-const NAMESPACE_HASH_SEED: u32 = 5381;
-
-/// Number of bits for namespace (top bits of u32 error code)
-/// Using 22 bits gives ~4 million possible namespaces, reducing collision risk
-const NAMESPACE_BITS: u32 = 22;
-const NAMESPACE_MAX: u32 = (1 << NAMESPACE_BITS) - 1; // 4194303
-
-/// Number of bits for inner error codes (lower bits)
-const INNER_BITS: u32 = 32 - NAMESPACE_BITS; // 10 bits = 1024 inner codes per namespace
-
-/// Compute namespace from variant name using DJB2 hash.
-/// Must match scerr's namespace computation exactly.
-fn compute_namespace(variant_name: &str) -> u32 {
-    let mut hash = NAMESPACE_HASH_SEED;
-    for c in variant_name.bytes() {
-        hash = ((hash << 5).wrapping_add(hash)).wrapping_add(c as u32);
-    }
-    // Use bits from the hash, ensure non-zero (1-1023)
-    (hash % NAMESPACE_MAX) + 1
-}
 
 #[derive(Debug, FromMeta)]
 pub struct ContractImportArgs {
@@ -81,7 +60,7 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
         .collect()
 }
 
-/// Generate ErrorSpecEntry tokens for a list of variants.
+/// Generate `ErrorSpecEntry` tokens for a list of variants.
 fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
     variants
         .iter()
@@ -91,16 +70,32 @@ fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::Toke
             let doc = &v.doc;
             quote! {
                 soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code,
-                    name: #name,
-                    description: #doc,
+                    code: #code, name: #name, description: #doc,
                 }
             }
         })
         .collect()
 }
 
-/// Generate the __SCERR_SPEC_{TypeName} const for an error enum.
+/// Generate `SpecNode` leaf tokens for a list of variants.
+fn generate_tree_nodes(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
+    variants
+        .iter()
+        .map(|v| {
+            let code = v.code;
+            let name = &v.name;
+            let doc = &v.doc;
+            quote! {
+                soroban_sdk_tools::error::SpecNode {
+                    code: #code, name: #name, description: #doc,
+                    children: &[],
+                }
+            }
+        })
+        .collect()
+}
+
+/// Generate the `__SCERR_SPEC_{TypeName}` const for an error enum.
 /// This provides programmatic access to error variant info.
 fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let const_name = format_ident!("__SCERR_SPEC_{}", info.name);
@@ -119,80 +114,70 @@ fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     }
 }
 
-/// Generate ContractErrorSpec implementation for imported error types.
+/// Generate `ContractErrorSpec` implementation for imported error types.
 fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
     let entries = generate_spec_entries(&info.variants);
+    let tree_nodes = generate_tree_nodes(&info.variants);
 
     quote! {
         impl soroban_sdk_tools::error::ContractErrorSpec for #type_name {
             const SPEC_ENTRIES: &'static [soroban_sdk_tools::error::ErrorSpecEntry] = &[
                 #(#entries),*
             ];
+            const SPEC_TREE: &'static [soroban_sdk_tools::error::SpecNode] = &[
+                #(#tree_nodes),*
+            ];
         }
     }
 }
 
-/// Generate an auto-named getter macro based on the error TYPE name.
+/// Generate ContractError implementation for imported error types.
 ///
-/// This is automatically called for each error enum in the WASM spec.
-/// The getter macro is named `__scerr_{TypeName}_variants` (e.g., `__scerr_MathError_variants`).
-/// The namespace is computed from the type name (e.g., hash("MathError")).
-/// Flattened variant names use the type name as prefix (e.g., `MathError_DivisionByZero`).
-fn generate_auto_getter_macro(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
-    let type_name = &info.name; // e.g., "MathError"
-    let namespace = compute_namespace(type_name);
-    let getter_ident = format_ident!("__scerr_{}_variants", type_name);
+/// Imported types are `#[contracterror]` `repr(u32)` enums, so:
+/// - `into_code`: `self as u32`
+/// - `from_code`: uses `TryFrom<InvokeError>` (provided by soroban-sdk's contracterror)
+/// - `description`: matches each variant to its doc string from the WASM spec
+fn generate_contract_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
+    let type_name = format_ident!("{}", info.name);
 
-    // Build prefixed variants with combined codes and doc comments
-    // Format: { name: Ident, code: u32, doc: "..." }
-    let variants: Vec<_> = info
+    let desc_arms: Vec<_> = info
         .variants
         .iter()
         .map(|v| {
-            let combined_code = (namespace << INNER_BITS) | v.code;
-            let prefixed_name = format_ident!("{}_{}", type_name, v.name);
-            let doc = &v.doc;
-            quote! { { name: #prefixed_name, code: #combined_code, doc: #doc } }
+            let variant_ident = format_ident!("{}", v.name);
+            let doc = if v.doc.is_empty() {
+                v.name.clone()
+            } else {
+                v.doc.clone()
+            };
+            quote! { #type_name::#variant_ident => #doc }
         })
         .collect();
 
-    // Use proc_macro2 to generate the dollar sign token
-    let dollar = proc_macro2::Punct::new('$', proc_macro2::Spacing::Alone);
-
     quote! {
-        /// Auto-generated error variant getter macro for scerr.
-        ///
-        /// This macro is automatically used by scerr when it sees a
-        /// `#[from_contract_client]` variant wrapping this error type.
-        /// Macro name: `__scerr_{TypeName}_variants`
-        /// Namespace computed from: "{TypeName}"
-        #[doc(hidden)]
-        #[macro_export]
-        macro_rules! #getter_ident {
-            (
-                @name #dollar enum_name:ident
-                @acc [ #dollar ( #dollar acc:tt ),* ]
-                @unit [ #dollar ( #dollar unit:tt ),* ]
-                @pending [ #dollar ( #dollar rest:path ),* ]
-            ) => {
-                soroban_sdk_tools::__build_unified_spec! {
-                    @name #dollar enum_name
-                    @acc [ #dollar ( #dollar acc ,)* #(#variants),* ]
-                    @unit [ #dollar ( #dollar unit ),* ]
-                    @pending [ #dollar ( #dollar rest ),* ]
-                }
-            };
-        }
+        impl soroban_sdk_tools::error::ContractError for #type_name {
+            fn into_code(self) -> u32 {
+                self as u32
+            }
 
-        // Re-export at crate root for visibility
-        #[doc(hidden)]
-        pub use #getter_ident;
+            fn from_code(code: u32) -> Option<Self> {
+                <Self as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(
+                    soroban_sdk::InvokeError::Contract(code)
+                ).ok()
+            }
+
+            fn description(&self) -> &'static str {
+                match self {
+                    #(#desc_arms),*
+                }
+            }
+        }
     }
 }
 
-/// Main implementation of contractimport_with_errors!
-pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
+/// Main implementation of contractimport!
+pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
     let args = match darling::ast::NestedMeta::parse_meta_list(attr.into()) {
         Ok(v) => v,
         Err(e) => {
@@ -273,15 +258,10 @@ pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
             }
         };
 
-    // Generate spec consts and ContractErrorSpec impls for each error enum
-    // These provide programmatic access to error variant info
+    // Generate spec consts, ContractErrorSpec, and ContractError impls for each error enum
     let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
     let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-
-    // Generate getter macros for all error enums
-    // These are named __scerr_{TypeName}_variants and used automatically by scerr
-    // to build the unified flattened error spec
-    let auto_getter_macros: Vec<_> = error_enums.iter().map(generate_auto_getter_macro).collect();
+    let error_impls: Vec<_> = error_enums.iter().map(generate_contract_error_impl).collect();
 
     let output = quote! {
         #standard_import
@@ -292,9 +272,8 @@ pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
         // ContractErrorSpec implementations for imported error types
         #(#spec_impls)*
 
-        // Getter macros for scerr's unified spec generation
-        // Named __scerr_{TypeName}_variants, used automatically by scerr
-        #(#auto_getter_macros)*
+        // ContractError implementations for imported error types
+        #(#error_impls)*
     };
 
     output.into()

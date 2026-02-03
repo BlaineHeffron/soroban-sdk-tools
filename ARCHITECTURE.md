@@ -63,7 +63,7 @@ The soroban-sdk-tools-macro crate contains the procedural macro logic, separated
 
 * **storage.rs**: Defines the \#\[contractstorage\] macro, which parses storage-related annotations and generates code for storage types (e.g., PersistentMap, InstanceMap). It supports shorter key names and composable storage patterns while ensuring unique key definitions.
 
-* **error.rs**: Implements the \#\[scerr\] macro, which generates repr(u32) enums with unique variant codes for error handling. It also emits TryFromVal/IntoValimplementations and helper conversions for cross-contract error propagation. The macro supports a \#\[scerr(root)\] variant for designating a top-level error enum that composes errors from sub-modules or external contracts, incorporating attributes such as \#\[transparent\] for direct passthrough of nested errors and \#\[from\_contract\_client\] for errors originating from cross-contract calls.
+* **error.rs**: Implements the \#\[scerr\] macro, which generates error enums with sequential u32 codes. It auto-detects basic vs advanced (composable) mode based on variant attributes. Advanced mode uses const-chaining to flatten inner error types into sequential code ranges, and generates conversion traits for cross-contract error propagation via \#\[transparent\] and \#\[from\_contract\_client\] attributes.
 
 * **util.rs**: Provides shared utilities for macro parsing and code generation, ensuring consistency across the contract, storage, and error modules.
 
@@ -108,28 +108,25 @@ The crate builds upon Loam's SDK, re-exporting or wrapping its storage types (e.
 
 ### **Error Handling System**
 
-Soroban defines contract errors as `#[repr(u32)]` enums annotated with `#[contracterror]`. The `soroban-sdk-tools` crate introduces a composable error handling framework, named `scerr`, to enhance developer productivity and ensure robust error propagation. This framework, implemented in the `soroban-sdk-tools-macro` crate, provides the following key features:
+Soroban defines contract errors as `#[repr(u32)]` enums annotated with `#[contracterror]`. The `soroban-sdk-tools` crate introduces a composable error handling framework via the `#[scerr]` macro, enhancing developer productivity and ensuring robust error propagation across contracts. Key features:
 
-**Automatic Code Assignment**: The `#[scerr]` attribute macro, applied to an error enum, automatically assigns each variant a unique `u32` code. This eliminates manual numbering and prevents overlaps. For example:
+* **Automatic Sequential Code Assignment**: The `#[scerr]` attribute macro assigns each variant a sequential `u32` code starting at 1. The macro auto-detects basic mode (all unit variants) vs advanced mode (composable error variants with `#[transparent]`, `#[from_contract_client]`, `#[abort]`, `#[sentinel]`, or data).
 
-| \#\[scerr\]pub enum Error {    InvalidInput,    Overflow,} |
-| :---- |
 
- expands to:
+* **Const-Chained Sequential Codes**: In advanced mode, wrapped variants (those using `#[transparent]` or `#[from_contract_client]`) have their inner type's variants flattened into the sequential range. Code assignment uses const-chaining at compile time, referencing `ContractErrorSpec::SPEC_ENTRIES.len()` to determine how many codes each inner type occupies. This guarantees collision-free codes without namespace hashing.
 
-| \#\[repr(u32)\]\#\[derive(Copy, Clone)\]pub enum Error {    InvalidInput \= 1,    Overflow \= 2,} |
-| :---- |
+* **Inner Type Requirements**: All types used with `#[transparent]` or `#[from_contract_client]` must implement `ContractError` and `ContractErrorSpec` traits. These are provided by `#[scerr]` (local types) and `contractimport!` (imported types). Plain `#[contracterror]` types without these traits produce a compile error.
 
-*  The macro ensures compliance with Soroban’s requirements for error enums, including `#[repr(u32)]` and `#[derive(Copy, Clone)]`.
+* **Conversion Traits**: The `#[scerr]` macro implements `TryFromVal<Env>`, `IntoVal<Env>`, `From<InvokeError>`, and other required traits. `#[transparent]` enables in-process `?` operator propagation, while `#[from_contract_client]` enables cross-contract error decoding via the `??` operator pattern on `try_*` client methods.
 
-* **Namespacing and Collision Prevention**: To avoid conflicts between error codes from different modules or contracts, the `#[scerr(root)]` attribute is applied to the top-level error enum in the contract. This collects all `#[scerr]`\-annotated enums from sub-modules or dependencies and performs compile-time checks to ensure no duplicate codes exist. It generates unique codes by incorporating a namespace, derived from the contract or crate name, into the code calculation. For instance, if two modules define `InvalidInput`, the macro prefixes each with a module-specific identifier or hashes the enum name to guarantee uniqueness.
+* **Error Propagation and Logging**: Configurable handling for abort conditions (`handle_abort`) and unknown error codes (`handle_unknown`) with optional logging (`log_unknown_errors`). The `panic_with_error!` macro simplifies triggering panics with contract errors.
 
-* **Conversion Traits**: The `#[scerr]` macro automatically implements `TryFromVal<Env>` and `IntoVal<Env>` for the enum, enabling seamless error propagation across the Soroban host boundary. For cross-contract calls, where Contract A invokes Contract B, the framework supports wrapping B’s error into A’s namespace using attributes like `#[transparent]` for direct error passthrough (e.g., `#[transparent] AError(#[from] a::Error)`) and `#[from_contract_client]` for client-side errors from external contracts (e.g., `#[from_contract_client] ContractCError(#[from] c::Error)`). A `FromContractError` trait is generated to facilitate conversions between error enums, ensuring type-safe error handling.  
-* **Error Propagation and Logging**: The crate provides utility functions to simplify error handling, such as a wrapper around Soroban’s `panic_with_error!` macro for triggering panics with contract errors. It also supports returning `Result<T, Error>` from functions with minimal boilerplate. To enhance error context, the framework integrates with an upstream CLI change, leveraging the contract specification to map error codes to descriptive messages for improved debugging and logging.
+The `#[scerr]` macro auto-detects advanced mode when composable error attributes are present, leveraging Rust's const evaluation and procedural macro system to assign codes at compile time.
 
-By encapsulating Soroban’s error mechanisms in the `#[scerr]`macro, the framework enables developers to write concise, type-safe code while ensuring robust error propagation. The `#[scerr(root)]` macro, placed on the top-level error enum (e.g., in the main contract file), scans all `#[scerr]`\-annotated enums to enforce unique code assignments. This approach leverages Rust’s procedural macro system to analyze the contract’s structure at compile time, preventing runtime errors due to code collisions.
+* **WASM Spec Flattening**: Advanced-mode enums produce a fully flattened `ScSpecUdtErrorEnumV0` XDR entry in the WASM contract spec. All inner error variants are recursively flattened with prefixed names (e.g., `Middle_Deep_DeepFailureOne`) and sequential codes. This makes every error code visible to TypeScript bindings and other tooling that reads the WASM spec. Flattening uses a tree data structure (`SpecNode`) stored via `ContractErrorSpec::SPEC_TREE` and a const-fn XDR builder that serializes the tree at compile time. Both basic-mode `#[scerr]` enums and `contractimport!`-imported types provide `SPEC_TREE` with leaf nodes; advanced-mode enums reference inner types' trees as group nodes, enabling recursive flattening to any depth.
 
-The `scerr` framework builds upon and refines patterns from the `loam` project, ensuring compatibility with existing Soroban error handling while introducing composability and ease of use. This results in a streamlined development experience, reduced risk of errors, and improved contract maintainability.
+* **`contractimport!` and Non-scerr Types**: The `contractimport!` macro generates `ContractErrorSpec` (including `SPEC_TREE`) for every error enum found in a WASM file, regardless of whether the original contract used `#[scerr]` or plain `#[contracterror]`. The WASM spec format is the same for both. This means a plain `#[contracterror]` enum from another contract works with `#[from_contract_client]` when imported via `contractimport!`. However, a plain `#[contracterror]` type used as a direct Cargo dependency (not imported via `contractimport!`) does NOT implement `ContractErrorSpec` and will cause a compile error when used with `#[transparent]` or `#[from_contract_client]`.
+
 
 ### **Authorization Testing Utilities**
 
@@ -205,7 +202,7 @@ The procedural macros, defined in the `soroban-sdk-tools-macro` crate (`src/cont
 
            This generates code to initialize the fields and interface with the Soroban ledger.
 
-* **\#\[scerr\]**: Applied to an enum to define a contract error type. The macro ensures the enum is annotated with `#[repr(u32)]`, implements required traits (`Copy`, `Clone`, `TryFromVal`, `IntoVal`), and assigns unique u32 codes to each variant. It also generates a Display implementation for diagnostic purposes, facilitating error logging and debugging. When used with `(root)`, it designates the enum as the top-level error aggregator, supporting attributes like `#[transparent]` and `#[from_contract_client]` for composable error handling across modules and contracts.
+* **\#\[scerr\]**: Applied to an enum to define a contract error type. Auto-detects basic mode (simple unit enums) or advanced mode (composable errors). In basic mode, generates a `#[contracterror]` `#[repr(u32)]` enum with sequential codes. In advanced mode, generates a composable error type with const-chained sequential codes, `From` impls, `From<InvokeError>` for cross-contract decoding, and the `??` operator pattern. Supports `#[transparent]`, `#[from_contract_client]`, `#[abort]`, `#[sentinel]` variant attributes, and `handle_abort`, `handle_unknown`, `log_unknown_errors` options.
 
 * **Helper Macros**: The crate includes a function-like macro, `error!()`, which wraps Soroban’s `panic_with_error!` to simplify triggering panics with contract errors. This macro integrates with the contract specification to map error codes to descriptive messages, enhancing debugging.
 
