@@ -20,6 +20,24 @@ pub trait ContractError: Sized {
     fn description(&self) -> &'static str;
 }
 
+/// Trait for mapping error variants to/from a 0-based sequential index.
+///
+/// This enables composable error flattening: wrapped inner types are mapped
+/// into the outer enum's code space using `offset + inner.to_seq()` without
+/// any off-by-one arithmetic. Types implementing this trait can be used as
+/// inner types in `#[transparent]` and `#[from_contract_client]` variants.
+///
+/// For `#[scerr]` types, `to_seq()` returns `into_code() - 1` (since codes
+/// start at 1). For `contractimport!` types, the mapping is generated from
+/// the variant order regardless of native error codes.
+pub trait SequentialError: Sized {
+    /// Convert this error to a 0-based sequential index in `[0, TOTAL_CODES)`.
+    fn to_seq(&self) -> u32;
+
+    /// Construct this error from a 0-based sequential index.
+    fn from_seq(seq: u32) -> Option<Self>;
+}
+
 /// Spec entry for a single error variant.
 /// Used for flattening inner error types into outer contract specs.
 #[derive(Debug, Clone, Copy)]

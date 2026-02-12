@@ -653,15 +653,16 @@ fn generate_into_arms(
                     quote! { Self::#ident => #const_name }
                 }
             } else if info.is_wrapped() {
-                // Wrapped variant: OFFSET + inner.into_code() - 1
+                // Wrapped variant: OFFSET + inner.to_seq()
                 let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
+                let ty = info.field_ty().unwrap();
                 if let Some(field) = info.field_ident() {
                     quote! {
-                        Self::#ident { #field: inner } => #offset_name + inner.into_code() - 1
+                        Self::#ident { #field: inner } => #offset_name + <#ty as soroban_sdk_tools::error::SequentialError>::to_seq(inner)
                     }
                 } else {
                     quote! {
-                        Self::#ident(inner) => #offset_name + inner.into_code() - 1
+                        Self::#ident(inner) => #offset_name + <#ty as soroban_sdk_tools::error::SequentialError>::to_seq(inner)
                     }
                 }
             } else {
@@ -713,8 +714,8 @@ fn generate_from_code_body(
             let construct = if let Some(field) = info.field_ident() {
                 quote! {
                     if code >= #offset_name && code < #offset_name + #count_name {
-                        let inner_code = code - #offset_name + 1;
-                        if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(inner_code)) {
+                        let seq = code - #offset_name;
+                        if let Some(inner) = <#ty as soroban_sdk_tools::error::SequentialError>::from_seq(seq) {
                             return Some(Self::#ident { #field: inner });
                         }
                     }
@@ -722,8 +723,8 @@ fn generate_from_code_body(
             } else {
                 quote! {
                     if code >= #offset_name && code < #offset_name + #count_name {
-                        let inner_code = code - #offset_name + 1;
-                        if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(inner_code)) {
+                        let seq = code - #offset_name;
+                        if let Some(inner) = <#ty as soroban_sdk_tools::error::SequentialError>::from_seq(seq) {
                             return Some(Self::#ident(inner));
                         }
                     }
@@ -812,6 +813,22 @@ fn generate_contract_error_impl_root(
                 match self {
                     #(#desc_arms),*
                 }
+            }
+        }
+    }
+}
+
+/// Generate SequentialError impl for root mode.
+fn generate_sequential_error_impl_root(
+    name: &Ident,
+) -> proc_macro2::TokenStream {
+    quote! {
+        impl soroban_sdk_tools::error::SequentialError for #name {
+            fn to_seq(&self) -> u32 {
+                <Self as soroban_sdk_tools::error::ContractError>::into_code(*self) - 1
+            }
+            fn from_seq(seq: u32) -> Option<Self> {
+                <Self as soroban_sdk_tools::error::ContractError>::from_code(seq + 1)
             }
         }
     }
@@ -1367,6 +1384,7 @@ fn expand_scerr_root(
     let enum_def = generate_enum_def(name, &infos, has_data, &doc_attrs);
     let const_chain = generate_const_chain(name, &infos);
     let contract_error_impl = generate_contract_error_impl_root(name, &infos);
+    let sequential_error_impl = generate_sequential_error_impl_root(name);
     let spec_impl = generate_error_spec_impl_root(name, &infos);
     let wasm_spec = generate_wasm_spec_root(name, &enum_doc);
     let from_impls = generate_from_trait_impls(name, &infos)?;
@@ -1379,6 +1397,7 @@ fn expand_scerr_root(
         #enum_def
         #const_chain
         #contract_error_impl
+        #sequential_error_impl
         #spec_impl
         #wasm_spec
         #from_impls
@@ -1452,6 +1471,15 @@ fn expand_scerr_basic(
                 match *self {
                     #(#desc_arms,)*
                 }
+            }
+        }
+
+        impl soroban_sdk_tools::error::SequentialError for #name {
+            fn to_seq(&self) -> u32 {
+                *self as u32 - 1
+            }
+            fn from_seq(seq: u32) -> Option<Self> {
+                <Self as soroban_sdk_tools::error::ContractError>::from_code(seq + 1)
             }
         }
 

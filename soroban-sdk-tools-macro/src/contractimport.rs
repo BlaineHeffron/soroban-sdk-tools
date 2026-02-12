@@ -1,7 +1,7 @@
 //! Implementation of the contractimport! macro.
 //!
 //! This macro wraps soroban_sdk::contractimport! and additionally generates
-//! `ContractError` and `ContractErrorSpec` implementations for imported error types,
+//! `SequentialError` and `ContractErrorSpec` implementations for imported error types,
 //! enabling them to be used as inner types in `#[scerr]` root enums with
 //! `#[transparent]` or `#[from_contract_client]` attributes.
 
@@ -132,44 +132,47 @@ fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     }
 }
 
-/// Generate ContractError implementation for imported error types.
+/// Generate SequentialError implementation for imported error types.
 ///
-/// Imported types are `#[contracterror]` `repr(u32)` enums, so:
-/// - `into_code`: `self as u32`
-/// - `from_code`: uses `TryFrom<InvokeError>` (provided by soroban-sdk's contracterror)
-/// - `description`: matches each variant to its doc string from the WASM spec
-fn generate_contract_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
+/// Maps each variant to/from a 0-based sequential index based on its
+/// position in the enum, regardless of native error codes.
+fn generate_sequential_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
 
-    let desc_arms: Vec<_> = info
+    let to_seq_arms: Vec<_> = info
         .variants
         .iter()
-        .map(|v| {
+        .enumerate()
+        .map(|(idx, v)| {
             let variant_ident = format_ident!("{}", v.name);
-            let doc = if v.doc.is_empty() {
-                v.name.clone()
-            } else {
-                v.doc.clone()
-            };
-            quote! { #type_name::#variant_ident => #doc }
+            let idx = idx as u32;
+            quote! { #type_name::#variant_ident => #idx }
+        })
+        .collect();
+
+    let from_seq_arms: Vec<_> = info
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, v)| {
+            let variant_ident = format_ident!("{}", v.name);
+            let idx = idx as u32;
+            quote! { #idx => Some(#type_name::#variant_ident) }
         })
         .collect();
 
     quote! {
-        impl soroban_sdk_tools::error::ContractError for #type_name {
-            fn into_code(self) -> u32 {
-                self as u32
-            }
-
-            fn from_code(code: u32) -> Option<Self> {
-                <Self as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(
-                    soroban_sdk::InvokeError::Contract(code)
-                ).ok()
-            }
-
-            fn description(&self) -> &'static str {
+        impl soroban_sdk_tools::error::SequentialError for #type_name {
+            fn to_seq(&self) -> u32 {
                 match self {
-                    #(#desc_arms),*
+                    #(#to_seq_arms),*
+                }
+            }
+
+            fn from_seq(seq: u32) -> Option<Self> {
+                match seq {
+                    #(#from_seq_arms,)*
+                    _ => None,
                 }
             }
         }
@@ -258,10 +261,10 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
             }
         };
 
-    // Generate spec consts, ContractErrorSpec, and ContractError impls for each error enum
+    // Generate spec consts, ContractErrorSpec, and SequentialError impls for each error enum
     let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
     let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-    let error_impls: Vec<_> = error_enums.iter().map(generate_contract_error_impl).collect();
+    let seq_impls: Vec<_> = error_enums.iter().map(generate_sequential_error_impl).collect();
 
     let output = quote! {
         #standard_import
@@ -272,8 +275,8 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         // ContractErrorSpec implementations for imported error types
         #(#spec_impls)*
 
-        // ContractError implementations for imported error types
-        #(#error_impls)*
+        // SequentialError implementations for imported error types
+        #(#seq_impls)*
     };
 
     output.into()

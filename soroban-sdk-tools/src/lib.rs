@@ -22,7 +22,7 @@ pub mod storage;
 pub mod auth;
 
 // Re-export commonly used types
-pub use error::{ContractError, ContractErrorSpec, ErrorSpecEntry, SpecNode};
+pub use error::{ContractError, ContractErrorSpec, ErrorSpecEntry, SequentialError, SpecNode};
 pub use key::StorageKey;
 pub use storage::{
     InstanceItem, InstanceMap, PersistentItem, PersistentMap, TemporaryItem, TemporaryMap,
