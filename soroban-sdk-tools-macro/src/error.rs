@@ -605,14 +605,15 @@ fn generate_const_chain(
             let ty = info.field_ty().unwrap();
             let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
             let count_name = format_ident!("__SCERR_{}_{}_COUNT", upper_enum, upper_variant);
+            let end_name = format_ident!("__SCERR_{}_{}_END", upper_enum, upper_variant);
 
             consts.push(quote! {
                 const #offset_name: u32 = #prev_end + 1;
                 const #count_name: u32 = <#ty as soroban_sdk_tools::error::ContractErrorSpec>::TOTAL_CODES;
+                const #end_name: u32 = #offset_name + #count_name;
             });
 
-            // Next variant starts after offset + count - 1
-            prev_end = quote! { #offset_name + #count_name - 1 };
+            prev_end = quote! { #end_name - 1 };
         } else {
             // Unit, abort, or sentinel variant
             let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
@@ -655,14 +656,13 @@ fn generate_into_arms(
             } else if info.is_wrapped() {
                 // Wrapped variant: OFFSET + inner.to_seq()
                 let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
-                let ty = info.field_ty().unwrap();
                 if let Some(field) = info.field_ident() {
                     quote! {
-                        Self::#ident { #field: inner } => #offset_name + <#ty as soroban_sdk_tools::error::SequentialError>::to_seq(inner)
+                        Self::#ident { #field: inner } => #offset_name + inner.to_seq()
                     }
                 } else {
                     quote! {
-                        Self::#ident(inner) => #offset_name + <#ty as soroban_sdk_tools::error::SequentialError>::to_seq(inner)
+                        Self::#ident(inner) => #offset_name + inner.to_seq()
                     }
                 }
             } else {
@@ -683,67 +683,63 @@ fn generate_from_code_body(
 
     let mut arms = Vec::new();
 
+    // code == 0 always returns None
+    arms.push(quote! { 0 => None });
+
     for info in infos {
         let ident = &info.ident;
         let upper_variant = info.ident.to_string().to_uppercase();
 
         if info.is_sentinel() {
+            let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
             if info.stores_code() {
-                // Sentinel with stored code — matches its own code
-                let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
                 if let Some(field) = info.field_ident() {
                     arms.push(quote! {
-                        if code == #const_name { return Some(Self::#ident { #field: 0 }); }
+                        #const_name => Some(Self::#ident { #field: 0 })
                     });
                 } else {
                     arms.push(quote! {
-                        if code == #const_name { return Some(Self::#ident(0)); }
+                        #const_name => Some(Self::#ident(0))
                     });
                 }
             } else {
-                let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
                 arms.push(quote! {
-                    if code == #const_name { return Some(Self::#ident); }
+                    #const_name => Some(Self::#ident)
                 });
             }
         } else if info.is_wrapped() {
             let ty = info.field_ty().unwrap();
             let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
-            let count_name = format_ident!("__SCERR_{}_{}_COUNT", upper_enum, upper_variant);
+            let end_name = format_ident!("__SCERR_{}_{}_END", upper_enum, upper_variant);
 
             let construct = if let Some(field) = info.field_ident() {
-                quote! {
-                    if code >= #offset_name && code < #offset_name + #count_name {
-                        let seq = code - #offset_name;
-                        if let Some(inner) = <#ty as soroban_sdk_tools::error::SequentialError>::from_seq(seq) {
-                            return Some(Self::#ident { #field: inner });
-                        }
-                    }
-                }
+                quote! { |inner| Self::#ident { #field: inner } }
             } else {
-                quote! {
-                    if code >= #offset_name && code < #offset_name + #count_name {
-                        let seq = code - #offset_name;
-                        if let Some(inner) = <#ty as soroban_sdk_tools::error::SequentialError>::from_seq(seq) {
-                            return Some(Self::#ident(inner));
-                        }
-                    }
-                }
+                quote! { Self::#ident }
             };
-            arms.push(construct);
+
+            arms.push(quote! {
+                c @ #offset_name..#end_name => {
+                    #ty::from_seq(c - #offset_name).map(#construct)
+                }
+            });
         } else {
             // Unit or abort variant
             let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
             arms.push(quote! {
-                if code == #const_name { return Some(Self::#ident); }
+                #const_name => Some(Self::#ident)
             });
         }
     }
 
+    // Default arm
+    arms.push(quote! { _ => None });
+
     quote! {
-        if code == 0 { return None; }
-        #(#arms)*
-        None
+        use soroban_sdk_tools::error::SequentialError;
+        match code {
+            #(#arms,)*
+        }
     }
 }
 
@@ -800,6 +796,7 @@ fn generate_contract_error_impl_root(
     quote! {
         impl soroban_sdk_tools::error::ContractError for #name {
             fn into_code(self) -> u32 {
+                use soroban_sdk_tools::error::SequentialError;
                 match &self {
                     #(#into_arms,)*
                 }
@@ -1360,9 +1357,8 @@ fn compute_total_codes_expr(
     let upper_variant = last.ident.to_string().to_uppercase();
 
     if last.is_wrapped() {
-        let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
-        let count_name = format_ident!("__SCERR_{}_{}_COUNT", upper_enum, upper_variant);
-        quote! { #offset_name + #count_name - 1 }
+        let end_name = format_ident!("__SCERR_{}_{}_END", upper_enum, upper_variant);
+        quote! { #end_name - 1 }
     } else {
         let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
         quote! { #const_name }
