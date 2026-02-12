@@ -34,7 +34,6 @@ struct ErrorEnumInfo {
 #[derive(Debug)]
 struct ErrorVariantInfo {
     name: String,
-    code: u32,
     doc: String,
 }
 
@@ -50,7 +49,6 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
                     .iter()
                     .map(|c| ErrorVariantInfo {
                         name: c.name.to_utf8_string_lossy(),
-                        code: c.value,
                         doc: c.doc.to_utf8_string_lossy(),
                     })
                     .collect(),
@@ -61,11 +59,15 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
 }
 
 /// Generate `ErrorSpecEntry` tokens for a list of variants.
+///
+/// Uses 1-based sequential codes (matching variant position) rather than
+/// native error codes, consistent with `#[scerr]` basic mode.
 fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
     variants
         .iter()
-        .map(|v| {
-            let code = v.code;
+        .enumerate()
+        .map(|(idx, v)| {
+            let code = (idx + 1) as u32;
             let name = &v.name;
             let doc = &v.doc;
             quote! {
@@ -78,11 +80,16 @@ fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::Toke
 }
 
 /// Generate `SpecNode` leaf tokens for a list of variants.
+///
+/// Uses 1-based sequential codes (matching variant position) rather than
+/// native error codes, so that the XDR builder produces correct flattened
+/// codes when this type is wrapped by an outer `#[scerr]` enum.
 fn generate_tree_nodes(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
     variants
         .iter()
-        .map(|v| {
-            let code = v.code;
+        .enumerate()
+        .map(|(idx, v)| {
+            let code = (idx + 1) as u32;
             let name = &v.name;
             let doc = &v.doc;
             quote! {
