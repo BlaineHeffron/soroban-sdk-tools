@@ -743,47 +743,6 @@ fn generate_from_code_body(
     }
 }
 
-/// Generate match arms for `description` method.
-fn generate_desc_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    infos
-        .iter()
-        .map(|info| {
-            let ident = &info.ident;
-            let d = &info.description;
-
-            // Sentinel variants use their own description, even if they store a code
-            if info.is_sentinel() {
-                if info.stores_code() {
-                    if let Some(field) = info.field_ident() {
-                        quote! { Self::#ident { #field: _ } => #d }
-                    } else {
-                        quote! { Self::#ident(_) => #d }
-                    }
-                } else {
-                    quote! { Self::#ident => #d }
-                }
-            } else if info.is_fcc() || info.is_transparent() {
-                // Both FCC and transparent variants use the outer variant's description
-                if let Some(field) = info.field_ident() {
-                    quote! { Self::#ident { #field: _ } => #d }
-                } else if info.field_ty().is_some() {
-                    quote! { Self::#ident(_) => #d }
-                } else {
-                    quote! { Self::#ident => #d }
-                }
-            } else if info.field_ty().is_some() {
-                if let Some(field) = info.field_ident() {
-                    quote! { Self::#ident { #field } => #field.description() }
-                } else {
-                    quote! { Self::#ident(inner) => inner.description() }
-                }
-            } else {
-                quote! { Self::#ident => #d }
-            }
-        })
-        .collect()
-}
-
 /// Generate the ContractError impl for root mode.
 fn generate_contract_error_impl_root(
     name: &Ident,
@@ -791,7 +750,6 @@ fn generate_contract_error_impl_root(
 ) -> proc_macro2::TokenStream {
     let into_arms = generate_into_arms(name, infos);
     let from_code_body = generate_from_code_body(name, infos);
-    let desc_arms = generate_desc_arms(infos);
 
     quote! {
         impl soroban_sdk_tools::error::ContractError for #name {
@@ -804,12 +762,6 @@ fn generate_contract_error_impl_root(
 
             fn from_code(code: u32) -> Option<Self> {
                 #from_code_body
-            }
-
-            fn description(&self) -> &'static str {
-                match self {
-                    #(#desc_arms),*
-                }
             }
         }
     }
@@ -1434,15 +1386,6 @@ fn expand_scerr_basic(
         })
         .collect();
 
-    let desc_arms: Vec<_> = infos
-        .iter()
-        .map(|i| {
-            let ident = &i.ident;
-            let d = &i.description;
-            quote! { #name::#ident => #d }
-        })
-        .collect();
-
     // Generate ContractErrorSpec implementation
     let spec_impl = generate_error_spec_impl(name, infos);
 
@@ -1461,11 +1404,6 @@ fn expand_scerr_basic(
                 match code {
                     #(#from_arms,)*
                     _ => None,
-                }
-            }
-            fn description(&self) -> &'static str {
-                match *self {
-                    #(#desc_arms,)*
                 }
             }
         }

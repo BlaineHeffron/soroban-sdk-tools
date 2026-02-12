@@ -15,9 +15,6 @@ pub trait ContractError: Sized {
 
     /// Try to construct this error from a u32 code
     fn from_code(code: u32) -> Option<Self>;
-
-    /// Get a human-readable description
-    fn description(&self) -> &'static str;
 }
 
 /// Trait for mapping error variants to/from a 0-based sequential index.

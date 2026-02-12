@@ -366,8 +366,6 @@ fn transparent_and_from_impls_exist_and_work() {
     // Sequential codes mean inner code 2 becomes outer code 3
     assert_ne!(inner_code, outer_code);
 
-    let _desc = outer.description();
-
     let calc_inner = CalcError::Overflow;
     let calc_outer: OuterError = calc_inner.into();
     assert_eq!(calc_outer, OuterError::Calc(CalcError::Overflow));
@@ -614,16 +612,13 @@ impl AutoContract {
 #[test]
 fn test_auto_abort_handler() {
     let abort_err = AutoError::Aborted;
-    assert_eq!(abort_err.description(), "Cross-contract call aborted");
+    assert_eq!(abort_err.into_code(), AutoError::from_code(abort_err.into_code()).unwrap().into_code());
 }
 
 #[test]
 fn test_auto_unknown_handler() {
     let unknown = AutoError::UnknownError;
-    assert_eq!(
-        unknown.description(),
-        "Unknown error from cross-contract call"
-    );
+    assert_eq!(unknown.into_code(), AutoError::from_code(unknown.into_code()).unwrap().into_code());
 }
 
 #[test]
