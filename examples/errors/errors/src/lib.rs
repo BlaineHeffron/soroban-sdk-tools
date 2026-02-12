@@ -7,6 +7,11 @@ mod external {
         file = "../../../target/stellar/soroban_errors_external_contract.wasm"
     );
 }
+mod calc {
+    soroban_sdk_tools::contractimport!(
+        file = "../../../target/stellar/soroban_errors_calc_contract.wasm"
+    );
+}
 // Mode is auto-detected due to #[from_contract_client] attribute
 #[scerr]
 pub enum Error {
@@ -15,6 +20,8 @@ pub enum Error {
 
     #[from_contract_client]
     Math(#[from] external::MathError),
+    #[from_contract_client]
+    Calc(#[from] calc::CalcError),
 }
 
 #[contract]
@@ -29,6 +36,14 @@ impl Contract {
         denom: &i64,
     ) -> Result<i64, Error> {
         Ok(external::Client::new(env, address).try_safe_div(num, denom)??)
+    }
+    pub fn safe_div_with_calc(
+        env: &Env,
+        address: &Address,
+        num: &i64,
+        denom: &i64,
+    ) -> Result<i64, Error> {
+        Ok(calc::Client::new(env, address).try_safe_div(num, denom)??)
     }
 }
 
