@@ -20,7 +20,9 @@ fn read_u32(buf: &[u8], pos: usize) -> (u32, usize) {
 fn read_xdr_string(buf: &[u8], pos: usize) -> (String, usize) {
     let (len, pos) = read_u32(buf, pos);
     let len = len as usize;
-    let s = std::str::from_utf8(&buf[pos..pos + len]).unwrap().to_string();
+    let s = std::str::from_utf8(&buf[pos..pos + len])
+        .unwrap()
+        .to_string();
     let padded = (len + 3) & !3;
     (s, pos + padded)
 }
@@ -245,11 +247,7 @@ fn double_nesting_size_and_build() {
     ];
 
     for (i, (exp_name, exp_code)) in expected.iter().enumerate() {
-        assert_eq!(
-            cases[i].name, *exp_name,
-            "case[{}] name mismatch",
-            i
-        );
+        assert_eq!(cases[i].name, *exp_name, "case[{}] name mismatch", i);
         assert_eq!(
             cases[i].value, *exp_code,
             "case[{}] ({}) value mismatch",
@@ -400,11 +398,7 @@ fn long_doc_string() {
         children: &[],
     }];
 
-    const SIZE: usize = xdr_error_enum_size(
-        "LongDoc",
-        "enum-level doc",
-        TREE,
-    );
+    const SIZE: usize = xdr_error_enum_size("LongDoc", "enum-level doc", TREE);
     let xdr: [u8; SIZE] = build_error_enum_xdr("LongDoc", "enum-level doc", TREE);
 
     let (_, enum_doc, _, name, cases) = parse_xdr_error_enum(&xdr);

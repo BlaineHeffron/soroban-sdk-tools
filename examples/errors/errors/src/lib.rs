@@ -12,7 +12,7 @@ mod calc {
         file = "../../../target/stellar/soroban_errors_calc_contract.wasm"
     );
 }
-// Mode is auto-detected due to #[from_contract_client] attribute
+
 #[scerr]
 pub enum Error {
     /// unauthorized

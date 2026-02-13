@@ -221,7 +221,7 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
     // Verify SHA256 if provided
     let sha256_hex = {
         let hash = Sha256::digest(&wasm);
-        format!("{:x}", hash)
+        format!("{hash:x}")
     };
 
     if let Some(expected) = &args.sha256 {
@@ -244,7 +244,7 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         Err(e) => {
             return Error::new(
                 Span::call_site(),
-                format!("Failed to parse WASM spec: {:?}", e),
+                format!("Failed to parse WASM spec: {e:?}"),
             )
             .into_compile_error()
             .into()
@@ -271,7 +271,10 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
     // Generate spec consts, ContractErrorSpec, and SequentialError impls for each error enum
     let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
     let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-    let seq_impls: Vec<_> = error_enums.iter().map(generate_sequential_error_impl).collect();
+    let seq_impls: Vec<_> = error_enums
+        .iter()
+        .map(generate_sequential_error_impl)
+        .collect();
 
     let output = quote! {
         #standard_import

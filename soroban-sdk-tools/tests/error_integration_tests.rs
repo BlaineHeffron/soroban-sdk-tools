@@ -630,13 +630,23 @@ impl AutoContract {
 #[test]
 fn test_auto_abort_handler() {
     let abort_err = AutoError::Aborted;
-    assert_eq!(abort_err.into_code(), AutoError::from_code(abort_err.into_code()).unwrap().into_code());
+    assert_eq!(
+        abort_err.into_code(),
+        AutoError::from_code(abort_err.into_code())
+            .unwrap()
+            .into_code()
+    );
 }
 
 #[test]
 fn test_auto_unknown_handler() {
     let unknown = AutoError::UnknownError;
-    assert_eq!(unknown.into_code(), AutoError::from_code(unknown.into_code()).unwrap().into_code());
+    assert_eq!(
+        unknown.into_code(),
+        AutoError::from_code(unknown.into_code())
+            .unwrap()
+            .into_code()
+    );
 }
 
 #[test]

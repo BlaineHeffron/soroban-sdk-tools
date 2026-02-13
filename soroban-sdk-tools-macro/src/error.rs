@@ -757,9 +757,7 @@ fn generate_contract_error_impl_root(
 }
 
 /// Generate SequentialError impl for root mode.
-fn generate_sequential_error_impl_root(
-    name: &Ident,
-) -> proc_macro2::TokenStream {
+fn generate_sequential_error_impl_root(name: &Ident) -> proc_macro2::TokenStream {
     quote! {
         impl soroban_sdk_tools::error::SequentialError for #name {
             fn to_seq(&self) -> u32 {
@@ -788,7 +786,7 @@ fn generate_from_trait_impls(
         if seen.contains(&ty_s) {
             return Err(Error::new(
                 info.ident.span(),
-                format!("Duplicate From impl for {}", ty_s),
+                format!("Duplicate From impl for {ty_s}"),
             ));
         }
         seen.insert(ty_s);
