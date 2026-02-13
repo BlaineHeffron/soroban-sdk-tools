@@ -474,7 +474,8 @@ fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
                     // In root mode, wrapped variants use 0 as placeholder
                     // Their actual codes are computed via const-chaining
                     let is_wrapped = variant.attrs.iter().any(|a| {
-                        a.path().is_ident("transparent") || a.path().is_ident("from_contract_client")
+                        a.path().is_ident("transparent")
+                            || a.path().is_ident("from_contract_client")
                     });
                     if is_wrapped {
                         Ok(0) // placeholder for wrapped variants
@@ -495,10 +496,7 @@ fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
 }
 
 /// Collect `VariantInfo` for all variants in the enum.
-fn collect_variant_infos(
-    data: &DataEnum,
-    mode: ScerrMode,
-) -> syn::Result<Vec<VariantInfo>> {
+fn collect_variant_infos(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<VariantInfo>> {
     let codes = assign_codes(data, mode)?;
     collect_results(
         data.variants
@@ -587,10 +585,7 @@ fn generate_enum_def(
 ///            `const __SCERR_{ENUM}_{VARIANT}_COUNT: u32 = <InnerType as ContractErrorSpec>::SPEC_ENTRIES.len() as u32;`
 ///
 /// The "prev" for the first variant is 0, so it gets code 1.
-fn generate_const_chain(
-    enum_name: &Ident,
-    infos: &[VariantInfo],
-) -> proc_macro2::TokenStream {
+fn generate_const_chain(enum_name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let upper_enum = enum_name.to_string().to_uppercase();
     let mut consts = Vec::new();
 
@@ -630,10 +625,7 @@ fn generate_const_chain(
 }
 
 /// Generate match arms for `into_code` method in root mode.
-fn generate_into_arms(
-    enum_name: &Ident,
-    infos: &[VariantInfo],
-) -> Vec<proc_macro2::TokenStream> {
+fn generate_into_arms(enum_name: &Ident, infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
     let upper_enum = enum_name.to_string().to_uppercase();
 
     infos
@@ -675,10 +667,7 @@ fn generate_into_arms(
 }
 
 /// Generate the from_code implementation for root mode.
-fn generate_from_code_body(
-    enum_name: &Ident,
-    infos: &[VariantInfo],
-) -> proc_macro2::TokenStream {
+fn generate_from_code_body(enum_name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let upper_enum = enum_name.to_string().to_uppercase();
 
     let mut arms = Vec::new();
@@ -956,6 +945,9 @@ fn generate_soroban_conversions(name: &Ident) -> proc_macro2::TokenStream {
 
 /// Generate impls for ?? operator support on Result<T, InvokeError>.
 fn generate_double_q_impls(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
+    let abort_handler = generate_abort_handler(infos);
+    let unknown_handler = generate_unknown_handler(infos);
+
     let impls: Vec<_> = infos
         .iter()
         .filter(|i| i.is_fcc())
@@ -971,8 +963,18 @@ fn generate_double_q_impls(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::
                 impl From<Result<#ty, soroban_sdk::InvokeError>> for #name {
                     fn from(res: Result<#ty, soroban_sdk::InvokeError>) -> Self {
                         match res {
+                            // SDK decoded the raw code as the expected inner type
                             Ok(inner) => #ok_construct,
-                            Err(e) => Self::from(e),
+                            // SDK could not decode the raw code. We handle directly
+                            // instead of delegating to From<InvokeError>, which
+                            // would incorrectly interpret the raw code in our own
+                            // remapped code space via from_code().
+                            Err(soroban_sdk::InvokeError::Contract(code)) => {
+                                #unknown_handler
+                            }
+                            Err(soroban_sdk::InvokeError::Abort) => {
+                                #abort_handler
+                            }
                         }
                     }
                 }
@@ -1129,7 +1131,6 @@ fn generate_logging_impl(
     })
 }
 
-
 /// Generate ContractErrorSpec implementation for an error enum (basic mode).
 fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let unit_variants = infos.iter().filter(|i| i.field_ty().is_none());
@@ -1175,10 +1176,7 @@ fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2:
 /// const-fn helpers that walk the type's `SPEC_TREE`.  Inner types' variant
 /// names are flattened with prefixes (e.g. `Deep_DeepFailureOne`), and codes
 /// are remapped to sequential positions.
-fn generate_wasm_spec_root(
-    enum_name: &Ident,
-    enum_doc: &str,
-) -> proc_macro2::TokenStream {
+fn generate_wasm_spec_root(enum_name: &Ident, enum_doc: &str) -> proc_macro2::TokenStream {
     let upper_enum = enum_name.to_string().to_uppercase();
     let name_str = enum_name.to_string();
     let spec_ident = format_ident!("__SPEC_XDR_TYPE_{}", upper_enum);
@@ -1212,10 +1210,7 @@ fn generate_wasm_spec_root(
 /// `SPEC_TREE` contains both leaf nodes (unit variants with const-chain code
 /// references) and group nodes (wrapped variants whose children reference
 /// the inner type's `SPEC_TREE`).
-fn generate_error_spec_impl_root(
-    name: &Ident,
-    infos: &[VariantInfo],
-) -> proc_macro2::TokenStream {
+fn generate_error_spec_impl_root(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let upper_enum = name.to_string().to_uppercase();
 
     // Build spec entries for unit-like variants only (using const-chain references)
@@ -1248,8 +1243,7 @@ fn generate_error_spec_impl_root(
             if i.is_wrapped() {
                 // Group node: references inner type's SPEC_TREE
                 let ty = i.field_ty().unwrap();
-                let offset_name =
-                    format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
+                let offset_name = format_ident!("__SCERR_{}_{}_OFFSET", upper_enum, upper_variant);
                 quote! {
                     soroban_sdk_tools::error::SpecNode {
                         code: #offset_name,
@@ -1260,8 +1254,7 @@ fn generate_error_spec_impl_root(
                 }
             } else {
                 // Leaf node
-                let const_name =
-                    format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
+                let const_name = format_ident!("__SCERR_{}_{}", upper_enum, upper_variant);
                 quote! {
                     soroban_sdk_tools::error::SpecNode {
                         code: #const_name,
@@ -1295,10 +1288,7 @@ fn generate_error_spec_impl_root(
 /// This mirrors the const-chain logic: the last variant's end position gives us
 /// the total count. For a unit variant at the end, it's its const code. For a
 /// wrapped variant at the end, it's OFFSET + COUNT - 1.
-fn compute_total_codes_expr(
-    enum_name: &Ident,
-    infos: &[VariantInfo],
-) -> proc_macro2::TokenStream {
+fn compute_total_codes_expr(enum_name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let upper_enum = enum_name.to_string().to_uppercase();
 
     if infos.is_empty() {

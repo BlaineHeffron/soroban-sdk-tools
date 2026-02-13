@@ -108,17 +108,13 @@ pub trait ContractErrorSpec {
 ///     string   name (with accumulated prefix)
 ///     4 bytes  value (u32)
 /// ```
-pub const fn xdr_error_enum_size(
-    name: &str,
-    doc: &str,
-    tree: &[SpecNode],
-) -> usize {
+pub const fn xdr_error_enum_size(name: &str, doc: &str, tree: &[SpecNode]) -> usize {
     4                                // union discriminant
     + xdr_string_size(doc.len())     // doc
     + xdr_string_size(0)             // lib (empty)
     + xdr_string_size(name.len())    // name
     + 4                              // cases count
-    + tree_cases_size(tree, 0)       // cases
+    + tree_cases_size(tree, 0) // cases
 }
 
 /// Build the complete XDR bytes for a `ScSpecEntry::UdtErrorEnumV0`.
@@ -279,7 +275,11 @@ const fn write_tree_cases(
             // Leaf: doc, name (with prefix), value
             pos = write_xdr_string(buf, pos, nodes[idx].description.as_bytes());
             pos = write_xdr_prefixed_string(
-                buf, pos, prefix_buf, prefix_len, nodes[idx].name.as_bytes(),
+                buf,
+                pos,
+                prefix_buf,
+                prefix_len,
+                nodes[idx].name.as_bytes(),
             );
             pos = write_u32_be(buf, pos, base_offset + nodes[idx].code);
         } else {

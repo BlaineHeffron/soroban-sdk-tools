@@ -230,12 +230,24 @@ fn root_mode_sequential_codes() {
     assert_eq!(OuterError::Unauthorized.into_code(), 1);
     assert_eq!(OuterError::Math(MathError::DivisionByZero).into_code(), 2);
     assert_eq!(OuterError::Math(MathError::NegativeInput).into_code(), 3);
-    assert_eq!(OuterError::MathClient(MathError::DivisionByZero).into_code(), 4);
-    assert_eq!(OuterError::MathClient(MathError::NegativeInput).into_code(), 5);
+    assert_eq!(
+        OuterError::MathClient(MathError::DivisionByZero).into_code(),
+        4
+    );
+    assert_eq!(
+        OuterError::MathClient(MathError::NegativeInput).into_code(),
+        5
+    );
     assert_eq!(OuterError::Calc(CalcError::Overflow).into_code(), 6);
     assert_eq!(OuterError::Calc(CalcError::Underflow).into_code(), 7);
-    assert_eq!(OuterError::LogicClient(LogicError::InvalidState).into_code(), 8);
-    assert_eq!(OuterError::LogicClient(LogicError::Unauthorized).into_code(), 9);
+    assert_eq!(
+        OuterError::LogicClient(LogicError::InvalidState).into_code(),
+        8
+    );
+    assert_eq!(
+        OuterError::LogicClient(LogicError::Unauthorized).into_code(),
+        9
+    );
     assert_eq!(OuterError::Aborted.into_code(), 10);
     assert_eq!(OuterError::UnknownError.into_code(), 11);
 }
@@ -477,8 +489,14 @@ fn root_to_root_sequential_codes() {
     // UnknownError (auto) = 5
 
     assert_eq!(OuterRootError::OuterUnauthorized.into_code(), 1);
-    assert_eq!(OuterRootError::Inner(InnerRootError::InnerUnauthorized).into_code(), 2);
-    assert_eq!(OuterRootError::Inner(InnerRootError::InnerInvalidState).into_code(), 3);
+    assert_eq!(
+        OuterRootError::Inner(InnerRootError::InnerUnauthorized).into_code(),
+        2
+    );
+    assert_eq!(
+        OuterRootError::Inner(InnerRootError::InnerInvalidState).into_code(),
+        3
+    );
     assert_eq!(OuterRootError::Aborted.into_code(), 4);
     assert_eq!(OuterRootError::UnknownError.into_code(), 5);
 }
@@ -658,14 +676,10 @@ impl LoggingContract {
         let result = client.try_safe_div(&10, &0);
 
         match result {
-            Ok(inner_result) => {
-                match inner_result {
-                    Ok(val) => Ok(val),
-                    Err(contract_err) => {
-                        Err(LoggingError::from(contract_err))
-                    }
-                }
-            }
+            Ok(inner_result) => match inner_result {
+                Ok(val) => Ok(val),
+                Err(contract_err) => Err(LoggingError::from(contract_err)),
+            },
             Err(inner_error) => match inner_error {
                 Ok(math_error) => Err(LoggingError::Math(math_error)),
                 Err(e) => Err(LoggingError::from_invoke_error(&env, e)),
@@ -1159,16 +1173,46 @@ fn test_mixed_fcc_sequential_codes() {
 
     assert_eq!(MixedFccError::NotPermitted.into_code(), 1);
     assert_eq!(MixedFccError::InvalidConfig.into_code(), 2);
-    assert_eq!(MixedFccError::MathOp(MathError::DivisionByZero).into_code(), 3);
-    assert_eq!(MixedFccError::MathOp(MathError::NegativeInput).into_code(), 4);
-    assert_eq!(MixedFccError::StandardOp(StandardError::NotFound).into_code(), 5);
-    assert_eq!(MixedFccError::StandardOp(StandardError::AlreadyExists).into_code(), 6);
-    assert_eq!(MixedFccError::StandardOp(StandardError::InvalidArgument).into_code(), 7);
-    assert_eq!(MixedFccError::StorageOp(StorageError::KeyNotFound).into_code(), 8);
-    assert_eq!(MixedFccError::StorageOp(StorageError::ValueTooLarge).into_code(), 9);
-    assert_eq!(MixedFccError::StorageOp(StorageError::QuotaExceeded).into_code(), 10);
-    assert_eq!(MixedFccError::LogicOp(LogicError::InvalidState).into_code(), 11);
-    assert_eq!(MixedFccError::LogicOp(LogicError::Unauthorized).into_code(), 12);
+    assert_eq!(
+        MixedFccError::MathOp(MathError::DivisionByZero).into_code(),
+        3
+    );
+    assert_eq!(
+        MixedFccError::MathOp(MathError::NegativeInput).into_code(),
+        4
+    );
+    assert_eq!(
+        MixedFccError::StandardOp(StandardError::NotFound).into_code(),
+        5
+    );
+    assert_eq!(
+        MixedFccError::StandardOp(StandardError::AlreadyExists).into_code(),
+        6
+    );
+    assert_eq!(
+        MixedFccError::StandardOp(StandardError::InvalidArgument).into_code(),
+        7
+    );
+    assert_eq!(
+        MixedFccError::StorageOp(StorageError::KeyNotFound).into_code(),
+        8
+    );
+    assert_eq!(
+        MixedFccError::StorageOp(StorageError::ValueTooLarge).into_code(),
+        9
+    );
+    assert_eq!(
+        MixedFccError::StorageOp(StorageError::QuotaExceeded).into_code(),
+        10
+    );
+    assert_eq!(
+        MixedFccError::LogicOp(LogicError::InvalidState).into_code(),
+        11
+    );
+    assert_eq!(
+        MixedFccError::LogicOp(LogicError::Unauthorized).into_code(),
+        12
+    );
     assert_eq!(MixedFccError::Aborted.into_code(), 13);
     assert_eq!(MixedFccError::UnknownError.into_code(), 14);
 }
@@ -1479,4 +1523,126 @@ fn root_mode_spec_tree_with_multiple_fcc_variants() {
     assert_eq!(tree[6].name, "Aborted");
     assert!(tree[7].children.is_empty());
     assert_eq!(tree[7].name, "UnknownError");
+}
+
+// -----------------------------------------------------------------------------
+// Tests: Cross-contract error code space overlap
+// -----------------------------------------------------------------------------
+
+#[scerr]
+pub enum FiveCodeError {
+    Fault1,
+    Fault2,
+    Fault3,
+    Fault4,
+    Fault5 = 5,
+}
+
+// OverlapCallerError layout:
+// OwnFault1 = 1, OwnFault2 = 2, OwnFault3 = 3, OwnFault4 = 4, OwnFault5 = 5
+// Imported (FCC, 5 variants): offset=6, count=5 -> codes 6-10
+// Aborted (auto) = 11, UnknownError (auto) = 12
+#[scerr]
+pub enum OverlapCallerError {
+    OwnFault1,
+    OwnFault2,
+    OwnFault3,
+    OwnFault4,
+    OwnFault5,
+
+    #[from_contract_client]
+    Imported(FiveCodeError),
+}
+
+#[test]
+fn overlap_caller_error_layout() {
+    assert_eq!(OverlapCallerError::OwnFault1.into_code(), 1);
+    assert_eq!(OverlapCallerError::OwnFault2.into_code(), 2);
+    assert_eq!(OverlapCallerError::OwnFault3.into_code(), 3);
+    assert_eq!(OverlapCallerError::OwnFault4.into_code(), 4);
+    assert_eq!(OverlapCallerError::OwnFault5.into_code(), 5);
+    assert_eq!(
+        OverlapCallerError::Imported(FiveCodeError::Fault1).into_code(),
+        6
+    );
+    assert_eq!(
+        OverlapCallerError::Imported(FiveCodeError::Fault2).into_code(),
+        7
+    );
+    assert_eq!(
+        OverlapCallerError::Imported(FiveCodeError::Fault3).into_code(),
+        8
+    );
+    assert_eq!(
+        OverlapCallerError::Imported(FiveCodeError::Fault4).into_code(),
+        9
+    );
+    assert_eq!(
+        OverlapCallerError::Imported(FiveCodeError::Fault5).into_code(),
+        10
+    );
+    assert_eq!(OverlapCallerError::Aborted.into_code(), 11);
+    assert_eq!(OverlapCallerError::UnknownError.into_code(), 12);
+}
+
+#[test]
+fn unknown_error_catches_out_of_range_cross_contract_code() {
+    let err = OverlapCallerError::from(soroban_sdk::InvokeError::Contract(42));
+    assert_eq!(err, OverlapCallerError::UnknownError);
+}
+
+// From<InvokeError> uses from_code() which is needed for SDK client decoding of
+// our own errors. It can't distinguish our codes from an alien contract's codes.
+// Cross-contract decoding goes through From<Result<E, InvokeError>> (via ??)
+// which does NOT use from_code().
+#[test]
+fn from_invoke_error_cannot_distinguish_own_codes_from_alien_codes() {
+    // from_code(3) matches OwnFault3 in our code space
+    let err = OverlapCallerError::from(soroban_sdk::InvokeError::Contract(3));
+    assert_eq!(err, OverlapCallerError::OwnFault3);
+
+    // codes beyond our space correctly fall through to UnknownError
+    let err = OverlapCallerError::from(soroban_sdk::InvokeError::Contract(42));
+    assert_eq!(err, OverlapCallerError::UnknownError);
+}
+
+#[test]
+fn double_q_correctly_decodes_cross_contract_errors() {
+    // Ok branch: SDK decoded the raw code as the expected inner type
+    let decoded: OverlapCallerError =
+        From::from(Ok(FiveCodeError::Fault5) as Result<FiveCodeError, soroban_sdk::InvokeError>);
+    assert_eq!(decoded, OverlapCallerError::Imported(FiveCodeError::Fault5));
+
+    let decoded: OverlapCallerError =
+        From::from(Ok(FiveCodeError::Fault1) as Result<FiveCodeError, soroban_sdk::InvokeError>);
+    assert_eq!(decoded, OverlapCallerError::Imported(FiveCodeError::Fault1));
+
+    // Err branch: SDK could not decode (e.g. contract upgraded with new codes)
+    let decoded: OverlapCallerError = From::from(Err(soroban_sdk::InvokeError::Contract(99))
+        as Result<FiveCodeError, soroban_sdk::InvokeError>);
+    assert_eq!(decoded, OverlapCallerError::UnknownError);
+
+    // Err branch: abort
+    let decoded: OverlapCallerError = From::from(
+        Err(soroban_sdk::InvokeError::Abort) as Result<FiveCodeError, soroban_sdk::InvokeError>
+    );
+    assert_eq!(decoded, OverlapCallerError::Aborted);
+}
+
+// The ?? Err branch handles unknown codes directly instead of delegating to
+// From<InvokeError>. Without this, from_code() would remap raw code 6 to
+// inner_code 1 (6 - offset + 1 = 1), silently giving Imported(Fault1).
+#[test]
+fn double_q_err_branch_does_not_mismatch_via_from_code() {
+    // code 6 is outside FiveCodeError's range but inside our FCC range [6, 11)
+    let decoded: OverlapCallerError = From::from(Err(soroban_sdk::InvokeError::Contract(6))
+        as Result<FiveCodeError, soroban_sdk::InvokeError>);
+    assert_eq!(decoded, OverlapCallerError::UnknownError);
+    assert_ne!(decoded, OverlapCallerError::Imported(FiveCodeError::Fault1));
+
+    // code 5 matches our OwnFault5 via from_code but should be unknown here
+    let decoded: OverlapCallerError = From::from(Err(soroban_sdk::InvokeError::Contract(5))
+        as Result<FiveCodeError, soroban_sdk::InvokeError>);
+    assert_eq!(decoded, OverlapCallerError::UnknownError);
+    assert_ne!(decoded, OverlapCallerError::OwnFault5);
 }
