@@ -807,34 +807,6 @@ fn generate_from_trait_impls(
     Ok(quote! { #(#impls)* })
 }
 
-/// Generate match arms for From<InvokeError> impl.
-///
-/// Uses `TryFrom<InvokeError>` instead of `ContractError::from_code` so that
-/// both scerr types AND standard `#[contracterror]` types can be used.
-fn generate_try_arms(infos: &[VariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    infos
-        .iter()
-        .filter(|i| i.is_fcc())
-        .map(|info| {
-            let ident = &info.ident;
-            let ty = info.field_ty().unwrap();
-            let construct = if let Some(field) = info.field_ident() {
-                quote! { Self::#ident { #field: inner } }
-            } else {
-                quote! { Self::#ident(inner) }
-            };
-            // Use TryFrom<InvokeError> which is implemented by both:
-            // - scerr types (via #[soroban_sdk::contracterror] that scerr generates)
-            // - standard #[contracterror] types (via soroban-sdk macro)
-            quote! {
-                if let Ok(inner) = <#ty as core::convert::TryFrom<soroban_sdk::InvokeError>>::try_from(soroban_sdk::InvokeError::Contract(code)) {
-                    return #construct;
-                }
-            }
-        })
-        .collect()
-}
-
 /// Generate the abort handler for From<InvokeError>.
 fn generate_abort_handler(infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     if let Some(info) = infos.iter().find(|i| i.is_from_abort()) {
@@ -865,7 +837,6 @@ fn generate_unknown_handler(infos: &[VariantInfo]) -> proc_macro2::TokenStream {
 
 /// Generate the From<InvokeError> impl.
 fn generate_invoke_error_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
-    let try_arms = generate_try_arms(infos);
     let abort_handler = generate_abort_handler(infos);
     let unknown_handler = generate_unknown_handler(infos);
 
@@ -874,15 +845,12 @@ fn generate_invoke_error_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro
             fn from(e: soroban_sdk::InvokeError) -> Self {
                 match e {
                     soroban_sdk::InvokeError::Contract(code) => {
-                        // 1. Try exact match against our own sequential codes
+                        // Try exact match against our sequential codes.
+                        // from_code covers the entire contiguous range 1..=TOTAL_CODES,
+                        // so any code outside that range is truly unknown.
                         if let Some(decoded) = Self::from_code(code) {
                             return decoded;
                         }
-
-                        // 2. Try decoding as inner FCC errors (raw codes from other contracts)
-                        #(#try_arms)*
-
-                        // 3. Handle unknown
                         #unknown_handler
                     }
                     soroban_sdk::InvokeError::Abort => {
