@@ -261,7 +261,7 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
             Err(e) => {
                 return Error::new(
                     Span::call_site(),
-                    format!("Failed to generate import code: {}", e),
+                    format!("Failed to generate import code: {e}"),
                 )
                 .into_compile_error()
                 .into()
