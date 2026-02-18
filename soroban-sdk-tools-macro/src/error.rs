@@ -456,6 +456,13 @@ fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
         .map(|variant| {
             // Check for explicit discriminant
             if let Some((_, expr)) = &variant.discriminant {
+                if mode == ScerrMode::Root {
+                    return Err(Error::new(
+                        expr.span(),
+                        "Explicit discriminants are not allowed in composable (root) mode. \
+                         Remove the `= N` assignment.",
+                    ));
+                }
                 if let Expr::Lit(ExprLit {
                     lit: Lit::Int(li), ..
                 }) = expr
