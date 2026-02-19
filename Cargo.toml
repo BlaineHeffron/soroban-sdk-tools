@@ -1,9 +1,5 @@
 [workspace]
-members = [
-    "soroban-sdk-tools",
-    "soroban-sdk-tools-macro",
-    "examples/*",
-]
+members = ["soroban-sdk-tools", "soroban-sdk-tools-macro", "examples/*"]
 resolver = "2"
 
 [workspace.package]
@@ -15,9 +11,9 @@ rust-version = "1.74"
 repository = "https://github.com/blaineheffron/soroban-sdk-tools"
 
 [workspace.dependencies]
-soroban-sdk = "23.2.1"
+soroban-sdk = "25.0.2"
 soroban-sdk-tools = { path = "soroban-sdk-tools", version = "0.1.0" }
-soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro", version = "0.1.0" } 
+soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro", version = "0.1.0" }
 
 # Macro dependencies
 syn = { version = "2.0.111", features = ["full", "extra-traits"] }
