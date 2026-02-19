@@ -38,3 +38,14 @@ fn calc_errors() {
         Err(Ok(crate::Error::Calc(calc::CalcError::DivisionByZero)))
     );
 }
+
+#[test]
+fn external_panic_error() {
+    let env = &Env::default();
+    env.mock_all_auths();
+
+    let external_contract_id = &env.register(external::WASM, ());
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(env, &contract_id);
+    assert_eq!(client.try_error_panic(external_contract_id), Ok(Ok(10)));
+}

@@ -45,6 +45,10 @@ impl Contract {
     ) -> Result<i64, Error> {
         Ok(calc::Client::new(env, address).try_safe_div(num, denom)??)
     }
+
+    pub fn error_panic(env: &Env, address: &Address) -> Result<i64, Error> {
+        Ok(external::Client::new(env, address).try_panic_error()??)
+    }
 }
 
 mod test;
