@@ -1,64 +1,27 @@
-//! Implementation of the contractimport_with_errors! macro.
+//! Implementation of the contractimport! macro.
 //!
 //! This macro wraps soroban_sdk::contractimport! and additionally generates
-//! spec metadata constants that enable scerr to flatten inner error types
-//! into the outer contract's spec.
+//! `SequentialError` and `ContractErrorSpec` implementations for imported error types,
+//! enabling them to be used as inner types in `#[scerr]` root enums with
+//! `#[transparent]` or `#[from_contract_client]` attributes.
 
 use darling::FromMeta;
 use proc_macro::TokenStream;
-use proc_macro2::{Literal, Span};
+use proc_macro2::Span;
 use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
 use std::fs;
-use stellar_xdr::curr::{
-    Limits, ScSpecEntry, ScSpecUdtErrorEnumCaseV0, ScSpecUdtErrorEnumV0, StringM, WriteXdr,
-};
+use stellar_xdr::curr::ScSpecEntry;
 use syn::Error;
 
 use crate::util::abs_from_rel_to_manifest;
-
-/// Default XDR read/write limits (same as soroban-sdk)
-const DEFAULT_XDR_RW_LIMITS: Limits = Limits {
-    depth: 500,
-    len: 0x1000000,
-};
-
-/// Hash seed for namespace computation (must match scerr's HASH_SEED)
-const NAMESPACE_HASH_SEED: u32 = 5381;
-
-/// Number of bits for namespace (top bits of u32 error code)
-/// Using 10 bits gives 1024 possible namespaces, reducing collision risk
-const NAMESPACE_BITS: u32 = 10;
-const NAMESPACE_MAX: u32 = (1 << NAMESPACE_BITS) - 1; // 1023
-
-/// Number of bits for inner error codes (lower bits)
-const INNER_BITS: u32 = 32 - NAMESPACE_BITS; // 22 bits
-
-/// Compute namespace from variant name using DJB2 hash.
-/// Must match scerr's namespace computation exactly.
-fn compute_namespace(variant_name: &str) -> u32 {
-    let mut hash = NAMESPACE_HASH_SEED;
-    for c in variant_name.bytes() {
-        hash = ((hash << 5).wrapping_add(hash)).wrapping_add(c as u32);
-    }
-    // Use bits from the hash, ensure non-zero (1-1023)
-    (hash % NAMESPACE_MAX) + 1
-}
 
 #[derive(Debug, FromMeta)]
 pub struct ContractImportArgs {
     file: String,
     #[darling(default)]
     sha256: Option<String>,
-    /// The variant name that will be used in scerr's #[from_contract_client].
-    /// When provided, generates a fully flattened error spec with combined codes.
-    #[darling(default)]
-    scerr_variant: Option<String>,
-    /// The outer error enum name. When provided along with scerr_variant,
-    /// the flattened spec will use this name so entries merge with the outer spec.
-    #[darling(default)]
-    outer_error: Option<String>,
 }
 
 /// Information about an error enum extracted from WASM spec.
@@ -71,7 +34,6 @@ struct ErrorEnumInfo {
 #[derive(Debug)]
 struct ErrorVariantInfo {
     name: String,
-    code: u32,
     doc: String,
 }
 
@@ -79,51 +41,72 @@ struct ErrorVariantInfo {
 fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
     specs
         .iter()
-        .filter_map(|entry| {
-            if let ScSpecEntry::UdtErrorEnumV0(e) = entry {
-                Some(parse_error_enum(e))
-            } else {
-                None
+        .filter_map(|entry| match entry {
+            ScSpecEntry::UdtErrorEnumV0(e) => Some(ErrorEnumInfo {
+                name: e.name.to_utf8_string_lossy(),
+                variants: e
+                    .cases
+                    .iter()
+                    .map(|c| ErrorVariantInfo {
+                        name: c.name.to_utf8_string_lossy(),
+                        doc: c.doc.to_utf8_string_lossy(),
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Generate `ErrorSpecEntry` tokens for a list of variants.
+///
+/// Uses 1-based sequential codes (matching variant position) rather than
+/// native error codes, consistent with `#[scerr]` basic mode.
+fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
+    variants
+        .iter()
+        .enumerate()
+        .map(|(idx, v)| {
+            let code = (idx + 1) as u32;
+            let name = &v.name;
+            let doc = &v.doc;
+            quote! {
+                soroban_sdk_tools::error::ErrorSpecEntry {
+                    code: #code, name: #name, description: #doc,
+                }
             }
         })
         .collect()
 }
 
-fn parse_error_enum(spec: &ScSpecUdtErrorEnumV0) -> ErrorEnumInfo {
-    let name = spec.name.to_utf8_string_lossy();
-    let variants = spec
-        .cases
+/// Generate `SpecNode` leaf tokens for a list of variants.
+///
+/// Uses 1-based sequential codes (matching variant position) rather than
+/// native error codes, so that the XDR builder produces correct flattened
+/// codes when this type is wrapped by an outer `#[scerr]` enum.
+fn generate_tree_nodes(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
+    variants
         .iter()
-        .map(|c| ErrorVariantInfo {
-            name: c.name.to_utf8_string_lossy(),
-            code: c.value,
-            doc: c.doc.to_utf8_string_lossy(),
-        })
-        .collect();
-
-    ErrorEnumInfo { name, variants }
-}
-
-/// Generate the __SCERR_SPEC_{TypeName} const for an error enum.
-fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
-    let const_name = format_ident!("__SCERR_SPEC_{}", info.name);
-    let entries: Vec<_> = info
-        .variants
-        .iter()
-        .map(|v| {
-            let code = v.code;
+        .enumerate()
+        .map(|(idx, v)| {
+            let code = (idx + 1) as u32;
             let name = &v.name;
             let doc = &v.doc;
             quote! {
-                soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code,
-                    name: #name,
-                    description: #doc,
+                soroban_sdk_tools::error::SpecNode {
+                    code: #code, name: #name, description: #doc,
+                    children: &[],
                 }
             }
         })
-        .collect();
+        .collect()
+}
 
+/// Generate the `__SCERR_SPEC_{TypeName}` const for an error enum.
+/// This provides programmatic access to error variant info.
+fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
+    let const_name = format_ident!("__SCERR_SPEC_{}", info.name);
+    let entries = generate_spec_entries(&info.variants);
     let doc = format!(
         "Spec metadata for `{}` error enum. Used by scerr for spec flattening.",
         info.name
@@ -138,141 +121,73 @@ fn generate_spec_const(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     }
 }
 
-/// Generate ContractErrorSpec implementation for imported error types.
+/// Generate `ContractErrorSpec` implementation for imported error types.
 fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
-    let entries: Vec<_> = info
-        .variants
-        .iter()
-        .map(|v| {
-            let code = v.code;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code,
-                    name: #name,
-                    description: #doc,
-                }
-            }
-        })
-        .collect();
+    let entries = generate_spec_entries(&info.variants);
+    let tree_nodes = generate_tree_nodes(&info.variants);
 
     quote! {
         impl soroban_sdk_tools::error::ContractErrorSpec for #type_name {
             const SPEC_ENTRIES: &'static [soroban_sdk_tools::error::ErrorSpecEntry] = &[
                 #(#entries),*
             ];
+            const SPEC_TREE: &'static [soroban_sdk_tools::error::SpecNode] = &[
+                #(#tree_nodes),*
+            ];
         }
     }
 }
 
-/// Generate a flattened spec static with combined error codes.
-/// This creates a spec entry where variant names are prefixed and codes include the namespace.
+/// Generate SequentialError implementation for imported error types.
 ///
-/// If `outer_error` is provided, the spec enum will use that name (allowing it to merge
-/// with the outer error spec in TypeScript bindings). Otherwise, it uses `{variant}_Flattened`.
-fn generate_flattened_spec_static(
-    info: &ErrorEnumInfo,
-    variant_name: &str,
-    outer_error: Option<&str>,
-) -> proc_macro2::TokenStream {
-    let namespace = compute_namespace(variant_name);
-    let static_name = format_ident!("__SPEC_XDR_FLATTENED_{}", variant_name.to_uppercase());
+/// Maps each variant to/from a 0-based sequential index based on its
+/// position in the enum, regardless of native error codes.
+fn generate_sequential_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
+    let type_name = format_ident!("{}", info.name);
 
-    // Build flattened cases with combined codes
-    let cases: Vec<ScSpecUdtErrorEnumCaseV0> = info
+    let to_seq_arms: Vec<_> = info
         .variants
         .iter()
-        .map(|v| {
-            let combined_code = (namespace << INNER_BITS) | v.code;
-            let flattened_name = format!("{}_{}", variant_name, v.name);
-            ScSpecUdtErrorEnumCaseV0 {
-                doc: StringM::try_from(v.doc.as_str()).unwrap_or_default(),
-                name: StringM::try_from(flattened_name.as_str()).unwrap_or_default(),
-                value: combined_code,
+        .enumerate()
+        .map(|(idx, v)| {
+            let variant_ident = format_ident!("{}", v.name);
+            let idx = idx as u32;
+            quote! { #type_name::#variant_ident => #idx }
+        })
+        .collect();
+
+    let from_seq_arms: Vec<_> = info
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, v)| {
+            let variant_ident = format_ident!("{}", v.name);
+            let idx = idx as u32;
+            quote! { #idx => Some(#type_name::#variant_ident) }
+        })
+        .collect();
+
+    quote! {
+        impl soroban_sdk_tools::error::SequentialError for #type_name {
+            fn to_seq(&self) -> u32 {
+                match self {
+                    #(#to_seq_arms),*
+                }
             }
-        })
-        .collect();
 
-    // Use {outer_error}_{variant} if outer_error is provided, otherwise use {variant}_Flattened
-    // This creates a clear naming relationship (e.g., ImportTestError_Math) that TypeScript
-    // users can easily combine with the main error enum via spread.
-    let flattened_enum_name = outer_error
-        .map(|s| format!("{}_{}", s, variant_name))
-        .unwrap_or_else(|| format!("{}_Flattened", variant_name));
-
-    let doc = format!(
-        "Flattened {} error variants (namespace {}). Combine with main error enum: {{...{}, ...{}}}",
-        variant_name,
-        namespace,
-        outer_error.unwrap_or("ErrorEnum"),
-        flattened_enum_name
-    );
-
-    let spec_entry = ScSpecEntry::UdtErrorEnumV0(ScSpecUdtErrorEnumV0 {
-        doc: StringM::try_from(doc).unwrap_or_default(),
-        lib: StringM::default(),
-        name: StringM::try_from(flattened_enum_name.as_str()).unwrap_or_default(),
-        cases: cases.try_into().unwrap_or_default(),
-    });
-
-    let spec_xdr = match spec_entry.to_xdr(DEFAULT_XDR_RW_LIMITS) {
-        Ok(xdr) => xdr,
-        Err(_) => return quote! {},
-    };
-
-    let spec_xdr_lit = Literal::byte_string(&spec_xdr);
-    let spec_xdr_len = spec_xdr.len();
-
-    quote! {
-        #[cfg_attr(target_family = "wasm", link_section = "contractspecv0")]
-        #[allow(non_upper_case_globals)]
-        pub static #static_name: [u8; #spec_xdr_len] = *#spec_xdr_lit;
+            fn from_seq(seq: u32) -> Option<Self> {
+                match seq {
+                    #(#from_seq_arms,)*
+                    _ => None,
+                }
+            }
+        }
     }
 }
 
-/// Generate a spec static that gets linked into the WASM.
-/// This ensures the inner error spec is available for TypeScript binding generation.
-fn generate_spec_static(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
-    let type_name = &info.name;
-    let static_name = format_ident!("__SPEC_XDR_IMPORTED_{}", type_name.to_uppercase());
-
-    // Build the spec entry
-    let cases: Vec<ScSpecUdtErrorEnumCaseV0> = info
-        .variants
-        .iter()
-        .map(|v| ScSpecUdtErrorEnumCaseV0 {
-            doc: StringM::try_from(v.doc.as_str()).unwrap_or_default(),
-            name: StringM::try_from(v.name.as_str()).unwrap_or_default(),
-            value: v.code,
-        })
-        .collect();
-
-    let spec_entry = ScSpecEntry::UdtErrorEnumV0(ScSpecUdtErrorEnumV0 {
-        doc: StringM::try_from(format!("Imported error enum: {}", type_name)).unwrap_or_default(),
-        lib: StringM::default(),
-        name: StringM::try_from(type_name.as_str()).unwrap_or_default(),
-        cases: cases.try_into().unwrap_or_default(),
-    });
-
-    let spec_xdr = match spec_entry.to_xdr(DEFAULT_XDR_RW_LIMITS) {
-        Ok(xdr) => xdr,
-        Err(_) => return quote! {},
-    };
-
-    let spec_xdr_lit = Literal::byte_string(&spec_xdr);
-    let spec_xdr_len = spec_xdr.len();
-
-    quote! {
-        #[cfg_attr(target_family = "wasm", link_section = "contractspecv0")]
-        #[allow(non_upper_case_globals)]
-        pub static #static_name: [u8; #spec_xdr_len] = *#spec_xdr_lit;
-    }
-}
-
-/// Main implementation of contractimport_with_errors!
-pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
+/// Main implementation of contractimport!
+pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
     let args = match darling::ast::NestedMeta::parse_meta_list(attr.into()) {
         Ok(v) => v,
         Err(e) => {
@@ -306,7 +221,7 @@ pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
     // Verify SHA256 if provided
     let sha256_hex = {
         let hash = Sha256::digest(&wasm);
-        format!("{:x}", hash)
+        format!("{hash:x}")
     };
 
     if let Some(expected) = &args.sha256 {
@@ -329,7 +244,7 @@ pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
         Err(e) => {
             return Error::new(
                 Span::call_site(),
-                format!("Failed to parse WASM spec: {:?}", e),
+                format!("Failed to parse WASM spec: {e:?}"),
             )
             .into_compile_error()
             .into()
@@ -346,39 +261,32 @@ pub fn contractimport_with_errors_impl(attr: TokenStream) -> TokenStream {
             Err(e) => {
                 return Error::new(
                     Span::call_site(),
-                    format!("Failed to generate import code: {}", e),
+                    format!("Failed to generate import code: {e}"),
                 )
                 .into_compile_error()
                 .into()
             }
         };
 
-    // Generate spec consts and ContractErrorSpec impls for each error enum
+    // Generate spec consts, ContractErrorSpec, and SequentialError impls for each error enum
     let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
     let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-    let spec_statics: Vec<_> = error_enums.iter().map(generate_spec_static).collect();
-
-    // Generate flattened spec if scerr_variant is provided
-    let flattened_spec = args.scerr_variant.as_ref().and_then(|variant_name| {
-        error_enums.first().map(|info| {
-            generate_flattened_spec_static(info, variant_name, args.outer_error.as_deref())
-        })
-    });
+    let seq_impls: Vec<_> = error_enums
+        .iter()
+        .map(generate_sequential_error_impl)
+        .collect();
 
     let output = quote! {
         #standard_import
 
-        // Spec metadata for error enums
+        // Spec metadata for error enums (programmatic access)
         #(#spec_consts)*
 
         // ContractErrorSpec implementations for imported error types
         #(#spec_impls)*
 
-        // Spec statics to embed inner error specs in outer WASM
-        #(#spec_statics)*
-
-        // Flattened spec with combined codes (when scerr_variant is specified)
-        #flattened_spec
+        // SequentialError implementations for imported error types
+        #(#seq_impls)*
     };
 
     output.into()

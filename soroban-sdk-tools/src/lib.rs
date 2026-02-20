@@ -11,7 +11,7 @@
 pub use soroban_sdk;
 
 // Re-export procedural macros
-pub use soroban_sdk_tools_macro::{contractimport_with_errors, contractstorage, scerr};
+pub use soroban_sdk_tools_macro::{contractimport, contractstorage, scerr};
 
 // Public modules
 pub mod error;
@@ -22,7 +22,7 @@ pub mod storage;
 pub mod auth;
 
 // Re-export commonly used types
-pub use error::{ContractError, ContractErrorSpec, ErrorSpecEntry};
+pub use error::{ContractError, ContractErrorSpec, ErrorSpecEntry, SequentialError, SpecNode};
 pub use key::StorageKey;
 pub use storage::{
     InstanceItem, InstanceMap, PersistentItem, PersistentMap, TemporaryItem, TemporaryMap,

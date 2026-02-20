@@ -36,7 +36,27 @@ soroban-sdk-tools = { version = "0.1.0", features = ["testutils"] }
 
 ### Storage Management
 
-The `#[contractstorage]` macro allows defining storage structs with automatic key optimization. It generates accessors and optimizes keys by shortening prefixes (via `auto_shorten = true`) or using explicit short keys (via `#[short_key = "shortname"]`).
+The `#[contractstorage]` macro allows defining storage structs with typed wrappers around Soroban's storage interfaces. It provides automatic key management and reduces boilerplate for common storage operations.
+
+#### Storage Types
+
+**Map Types** (key-value storage):
+- `PersistentMap<K, V>`: Long-term storage that persists across contract upgrades
+- `InstanceMap<K, V>`: Per-instance configuration data with instance-level TTL
+- `TemporaryMap<K, V>`: Ephemeral storage with automatic expiry
+
+**Item Types** (single value storage):
+- `PersistentItem<V>`: Single persistent value
+- `InstanceItem<V>`: Single instance-scoped value
+- `TemporaryItem<V>`: Single temporary value
+
+All types support these operations:
+- `get(&key)` / `get()` - Retrieve a value
+- `set(&key, &value)` / `set(&value)` - Store a value
+- `has(&key)` / `has()` - Check if a value exists
+- `remove(&key)` / `remove()` - Delete a value
+- `extend_ttl(...)` - Extend the time-to-live
+- `update(&key, f)` / `update(f)` - Atomically read-modify-write
 
 #### Basic Example
 
@@ -44,7 +64,7 @@ The `#[contractstorage]` macro allows defining storage structs with automatic ke
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk_tools::{contractstorage, PersistentMap, PersistentItem};
 
-#[contractstorage(auto_shorten = true)]
+#[contractstorage]
 pub struct TokenStorage {
     balances: PersistentMap<Address, u64>,
     total_supply: PersistentItem<u64>,
@@ -55,65 +75,135 @@ pub struct Token;
 
 #[contractimpl]
 impl Token {
-    pub fn set_balance(env: Env, addr: &Address, amount: u64) {
-        TokenStorage::new(&env).balances().set(addr, &amount);
+    pub fn set_balance(env: &Env, addr: &Address, amount: u64) {
+        TokenStorage::new(env).balances.set(addr, &amount);
+    }
+    
+    pub fn get_balance(env: &Env, addr: &Address) -> Option<u64> {
+        TokenStorage::new(env).balances.get(addr)
     }
 
-    pub fn get_balance(env: Env, addr: &Address) -> Option<u64> {
-        TokenStorage::new(&env).balances().get(addr)
+    pub fn get_total_supply(env: &Env) -> Option<u64> {
+        TokenStorage::new(env).total_supply.get()
     }
 }
 ```
 
-- **auto_shorten**: Automatically assigns short prefixes (e.g., "B" for balances) to minimize key size. For composite keys >32 bytes, hashes to `BytesN<32>`.
-- **short_key**: Override with a custom short prefix, e.g., `#[short_key = "bal"] balances: PersistentMap<Address, u64>`.
+By default, this generates readable "DataKey-style" storage keys:
+- Map entry for `balances`: `Vec[Symbol("Balances"), Address]`
+- Item key for `total_supply`: `Symbol("TotalSupply")`
 
-#### Symbolic Keys
+#### Key Optimization Modes
 
-By default, `auto_shorten` uses hashed keys (`Bytes` or `BytesN<32>`) for optimal compactness. For more readable keys during development or debugging, use the `symbolic` option:
+The macro supports several modes for optimizing storage keys to minimize ledger footprint:
+
+##### 1. Auto-Shorten (Recommended for Production)
+
+Use `auto_shorten = true` to automatically generate compact key prefixes:
+
+```rust
+#[contractstorage(auto_shorten = true)]
+pub struct TokenStorage {
+    balances: PersistentMap<Address, u64>,      // Prefix: "B"
+    allowances: PersistentMap<(Address, Address), u64>, // Prefix: "A"
+    total_supply: PersistentItem<u64>,          // Key: "T"
+}
+```
+
+- Field names are shortened to their first letter (with collision avoidance)
+- Map keys are hashed to `BytesN<32>` when composite key exceeds 32 bytes
+- Item keys use short `Bytes` (1-3 bytes)
+- **~30-40% storage savings** compared to symbolic keys
+
+Generated accessor methods when using `auto_shorten`:
+
+```rust
+impl TokenStorage {
+    pub fn balances(&self) -> &PersistentMap<Address, u64> { &self.balances }
+    pub fn total_supply(&self) -> &PersistentItem<u64> { &self.total_supply }
+}
+```
+
+##### 2. Custom Short Keys
+
+Override automatic prefixes with `#[short_key]` for upgrade safety:
+
+```rust
+#[contractstorage(auto_shorten = true)]
+pub struct TokenStorage {
+    #[short_key = "bal"]
+    balances: PersistentMap<Address, u64>,  // Prefix: "bal" (won't change if field renamed)
+    
+    #[short_key = "ts"]
+    total_supply: PersistentItem<u64>,      // Key: "ts"
+}
+```
+
+Use this when you need to ensure keys remain stable across field renames.
+
+##### 3. Symbolic Keys (Development/Debugging)
+
+Add `symbolic = true` for human-readable keys during development:
 
 ```rust
 #[contractstorage(auto_shorten = true, symbolic = true)]
 pub struct TokenStorage {
-    balances: PersistentMap<Address, u64>,  // Stored as Vec[Symbol("Ba"), Address]
-    total: PersistentItem<u64>,             // Stored as Symbol("T")
+    balances: PersistentMap<Address, u64>,  // Key: Vec[Symbol("B"), Address]
+    total_supply: PersistentItem<u64>,      // Key: Symbol("T")
 }
 ```
 
-With `symbolic = true`:
-- **Map keys**: `Vec[Symbol("ShortPrefix"), key_value]` instead of hashed `BytesN<32>`
-- **Item keys**: `Symbol("ShortPrefix")` instead of short `Bytes`
+Symbolic keys are easier to inspect in ledger debugging tools but use more storage.
 
-This makes keys human-readable in ledger inspection tools, at the cost of slightly larger keys for maps.
+##### 4. Field-Level Overrides
 
-You can also apply `#[symbolic]` to individual fields to override the struct-level behavior:
+Mix modes by applying `#[symbolic]` to specific fields:
 
 ```rust
 #[contractstorage(auto_shorten = true)]
-pub struct MixedStorage {
+pub struct TokenStorage {
     #[symbolic]
-    readable: PersistentMap<Address, u64>,  // Uses Vec[Symbol(...), Address]
-    optimized: PersistentMap<Address, u64>, // Uses hashed BytesN<32>
+    balances: PersistentMap<Address, u64>,      // Readable: Vec[Symbol("B"), Address]
+    
+    allowances: PersistentMap<(Address, Address), u64>, // Optimized: BytesN<32>
 }
 ```
 
-**When to use symbolic keys:**
-- Development and debugging for easier inspection
-- Contracts where key readability outweighs storage optimization
-- Testing scenarios where you need to verify specific key formats
+#### Storage Key Modes Reference
 
-**When to use hashed keys (default):**
-- Production contracts prioritizing minimal ledger footprint (~30% key size reduction)
-- High-frequency storage operations
-- Contracts with many storage fields
+The following table shows how different attribute combinations affect key generation:
+
+| Mode | Field Declaration | Map Key Format | Item Key Format | Key Size | Use Case |
+|------|------------------|----------------|-----------------|----------|----------|
+| **Default** | `balances: PersistentMap<Address, u64>` | `Vec[Symbol("Balances"), Address]` | `Symbol("Balances")` | Medium | Readable keys, traditional pattern |
+| **Default + short_key** | `#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("Bal"), Address]` | `Symbol("Bal")` | Medium | Custom readable keys |
+| **auto_shorten** | `#[contractstorage(auto_shorten = true)]`<br/>`balances: PersistentMap<Address, u64>` | `BytesN<32>` (hash of `"B" + Address`) | `Bytes("B")` | **Smallest** | 🏆 Production, minimal footprint |
+| **auto_shorten + short_key** | `#[contractstorage(auto_shorten = true)]`<br/>`#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `BytesN<32>` (hash of `"bal" + Address`) | `Bytes("bal")` | Small | Upgrade-safe custom prefix |
+| **auto_shorten + symbolic** | `#[contractstorage(auto_shorten = true, symbolic = true)]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("B"), Address]` | `Symbol("B")` | Medium | Development, readable short keys |
+| **auto_shorten + symbolic + short_key** | `#[contractstorage(auto_shorten = true, symbolic = true)]`<br/>`#[short_key = "bal"]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("Bal"), Address]` | `Symbol("Bal")` | Medium | Custom readable short keys |
+| **Field-level #[symbolic]** | `#[contractstorage(auto_shorten = true)]`<br/>`#[symbolic]`<br/>`balances: PersistentMap<Address, u64>` | `Vec[Symbol("B"), Address]` | `Symbol("B")` | Medium | Mixed: readable specific fields |
+
+**Key Size Comparison:**
+- **Smallest**: `BytesN<32>` for maps (32 bytes), `Bytes` for items (1-3 bytes) - **Production Recommended**
+- **Small**: `Bytes` for short prefixed items (2-4 bytes)
+- **Medium**: `Vec[Symbol, Key]` for maps (~40-50 bytes), `Symbol` for items (~10-20 bytes)
+
+**Choosing a Mode:**
+
+1. **Production contracts** 🏆: Use `auto_shorten = true` for ~30-40% storage savings
+2. **Upgrade-safe contracts**: Use `auto_shorten = true` with explicit `#[short_key = "..."]`
+3. **Development/debugging** 🔍: Add `symbolic = true` to make keys human-readable
+4. **Traditional pattern**: Use default mode (no auto_shorten) for DataKey enum compatibility
+5. **Mixed requirements**: Use `auto_shorten = true` with field-level `#[symbolic]` for specific readable fields
 
 #### Key View Methods
 
-Generated methods like `get_storage_<field>_key` allow inspecting the underlying storage key:
+Generated methods like `get_<struct>_<field>_key` allow inspecting the underlying storage key:
 
 ```rust
 let storage = TokenStorage::new(&env);
-let key = storage.get_storage_balances_key(addr.clone());
+let key = storage.get_token_storage_balances_key(addr.clone());
+// Use this key with env.storage() directly if needed
 ```
 
 #### Storage Types
@@ -132,7 +222,7 @@ For more examples, see the [tests](tests/) directory, which covers numeric keys,
 
 The `#[scerr]` macro simplifies defining contract error enums with automatic `u32` code assignment, required traits, and composable error handling across contracts.
 
-#### Basic Mode
+#### Basic Usage
 
 For simple error enums within a single contract, use `#[scerr]`:
 
@@ -150,15 +240,16 @@ pub enum TokenError {
 
 This generates:
 - A `#[contracterror]` enum with `#[repr(u32)]`
-- Unique codes via DJB2 hashing (guaranteed non-zero)
+- Sequential codes starting at 1 (e.g., `InsufficientBalance = 1`, `Unauthorized = 2`, `InvalidAmount = 3`)
 - `ContractError` trait implementation with `into_code()`, `from_code()`, and `description()` methods
+- `ContractErrorSpec` trait implementation (enables use as inner type in composable errors)
 - All required Soroban conversion traits (`TryFromVal`, `IntoVal`, etc.)
 
 **Descriptions**: Doc comments (`///`) on variants become human-readable error descriptions. Without a doc comment, the variant name is used.
 
-#### Root Mode - Composable Errors
+#### Composable Errors
 
-For contracts that call other contracts or need to propagate errors from sub-modules, use `#[scerr(mode = "root")]`:
+For contracts that call other contracts or need to propagate errors from sub-modules, add `#[transparent]` or `#[from_contract_client]` variants. The macro automatically generates `Aborted` (code 0) and `UnknownError` (code `UNKNOWN_ERROR_CODE`) variants for handling cross-contract edge cases:
 
 ```rust
 use soroban_sdk_tools::scerr;
@@ -171,23 +262,23 @@ pub enum MathError {
 }
 
 // Outer contract with composable error handling
-#[scerr(mode = "root")]
+#[scerr]
 pub enum AppError {
     // Own error variants
     Unauthorized,
     InvalidState,
-    
+
     // Transparent propagation for in-process calls
     #[transparent]
     Math(#[from] MathError),
-    
+
     // Cross-contract error handling
     #[from_contract_client]
     ExternalMath(MathError),
 }
 ```
 
-**Root mode features**:
+**Composable error features**:
 
 1. **Transparent Propagation** (`#[transparent]`): For in-process error propagation using `?` operator
    ```rust
@@ -217,151 +308,126 @@ pub enum AppError {
 
 #### Cross-Contract Error Handling Options
 
-Root mode provides configurable handling for edge cases when calling external contracts:
+When using cross-contract error composition, the macro automatically handles edge cases:
 
-##### Abort Handling (`handle_abort`)
+##### Abort Handling
 
-Controls how `InvokeError::Abort` (error code 0) is handled:
-
-- **`"panic"` (default)**: Panics when an external call aborts
-  ```rust
-  #[scerr(mode = "root")] // Panics on abort
-  pub enum AppError { /* ... */ }
-  ```
-
-- **`"auto"`**: Auto-generates an `Aborted` variant
-  ```rust
-  #[scerr(mode = "root", handle_abort = "auto")]
-  pub enum AppError {
-      InvalidInput,
-      #[from_contract_client]
-      Math(MathError),
-      // Auto-generated: Aborted
-  }
-  ```
-
-- **Custom with `#[abort]`**: Define your own abort handler
-  ```rust
-  #[scerr(mode = "root")]
-  pub enum AppError {
-      #[abort]
-      CallAborted,  // Catches InvokeError::Abort
-      // ...
-  }
-  ```
-
-##### Unknown Error Handling (`handle_unknown`)
-
-Controls how unmapped error codes from external contracts are handled:
-
-- **`"panic"` (default)**: Panics on unknown error codes
-  ```rust
-  #[scerr(mode = "root")] // Panics on unknown codes
-  pub enum AppError { /* ... */ }
-  ```
-
-- **`"auto"`**: Auto-generates an `UnknownError` variant
-  ```rust
-  #[scerr(mode = "root", handle_unknown = "auto")]
-  pub enum AppError {
-      InvalidInput,
-      #[from_contract_client]
-      Math(MathError),
-      // Auto-generated: UnknownError
-  }
-  ```
-
-- **Custom with `#[sentinel]`**: Define your own unknown error handler
-  ```rust
-  #[scerr(mode = "root")]
-  pub enum AppError {
-      #[sentinel]
-      Unmapped,  // Unit variant
-      
-      // Or store the unknown code:
-      #[sentinel]
-      UnknownError(u32),  // Stores original error code
-      // ...
-  }
-  ```
-
-##### Error Logging (`log_unknown_errors`)
-
-When enabled, logs unknown error codes via `env.logs().add()` before mapping to the sentinel variant:
+An `Aborted` variant (code 0) is always auto-generated in composable error enums. It catches `InvokeError::Abort` from cross-contract calls:
 
 ```rust
-#[scerr(mode = "root", handle_unknown = "auto", log_unknown_errors = true)]
+#[scerr]
 pub enum AppError {
-    InvalidInput,
     #[from_contract_client]
     Math(MathError),
-    // Auto-generated: UnknownError(u32) - stores code for logging
-}
-
-// Use the logging helper in your contract:
-pub fn call_external(env: Env, id: Address) -> Result<(), AppError> {
-    let client = ExternalClient::new(&env, &id);
-    let result = client.try_some_method();
-    
-    match result {
-        Ok(v) => v,
-        Err(e) => return Err(AppError::from_invoke_error(&env, e)),
-    }?;
-    
-    Ok(())
+    // Auto-generated: Aborted (code 0)
+    // Auto-generated: UnknownError (code UNKNOWN_ERROR_CODE)
 }
 ```
 
-**Requirements**: `log_unknown_errors = true` requires either `handle_unknown = "auto"` or an explicit `#[sentinel]` variant with code storage.
+##### Unknown Error Handling
 
-##### Complete Configuration Example
+Unknown error codes from external contracts are always caught by the auto-generated `UnknownError` sentinel variant (code `UNKNOWN_ERROR_CODE` / `i32::MAX`). This variant is always added to advanced-mode enums and cannot be customized.
 
 ```rust
-#[scerr(
-    mode = "root",
-    handle_abort = "auto",       // Auto-generate Aborted variant
-    handle_unknown = "auto",     // Auto-generate UnknownError variant
-    log_unknown_errors = true    // Log unknown codes
-)]
+#[scerr]
 pub enum AppError {
-    // Your error variants
-    Unauthorized,
-    InvalidState,
-    
-    // Cross-contract errors
     #[from_contract_client]
     Math(MathError),
-    
-    #[from_contract_client]
-    Token(TokenError),
-    
-    // Auto-generated variants:
-    // - Aborted
-    // - UnknownError(u32)
+    // Auto-generated: Aborted (code 0), UnknownError (code UNKNOWN_ERROR_CODE)
 }
 ```
 
-#### Architecture: 10/22 Bit Split
+#### Architecture: Sequential Code Assignment
 
-Root mode uses a 10/22 bit split to prevent code collisions:
-- **Unit variants** (e.g., `Unauthorized`, `Aborted`): Use codes 1-1023 (high 10 bits = 0)
-- **Wrapped variants** (e.g., `Math(MathError)`): Use high 10 bits for namespace (1-1023), low 22 bits for inner error code
+Error codes are assigned **sequentially** starting at 1. When a variant wraps another error type (via `#[transparent]` or `#[from_contract_client]`), the inner type's variants are **flattened** into the sequential range at their position. The `Aborted` variant always gets code 0, and the `UnknownError` sentinel always gets code `UNKNOWN_ERROR_CODE` (`i32::MAX`).
 
-Namespaces are assigned using a hash of the variant name (`hash(variant_name) % 1023 + 1`), ensuring deterministic and collision-resistant assignment across contracts.
+For example, given:
+```rust
+#[scerr]
+pub enum AppError {
+    Unauthorized,                           // code 1
+    #[transparent]
+    Math(#[from] MathError),                // codes 2-3 (MathError has 2 variants)
+    #[from_contract_client]
+    External(ExternalError),                // codes 4-6 (ExternalError has 3 variants)
+    // Auto-generated: Aborted = 0, UnknownError = UNKNOWN_ERROR_CODE (i32::MAX)
+}
+```
 
-This ensures that `AppError::Unauthorized` (code 1) never collides with `AppError::Math(MathError::DivisionByZero)` (code `namespace << 22 | inner_code`).
+Code assignment uses **const-chaining** at compile time:
+```rust
+const ABORTED: u32 = 0;                                       // fixed
+const UNAUTHORIZED: u32 = 1;
+const MATH_OFFSET: u32 = UNAUTHORIZED + 1;                    // 2
+const MATH_COUNT: u32 = <MathError as ContractErrorSpec>::TOTAL_CODES; // 2
+const EXTERNAL_OFFSET: u32 = MATH_OFFSET + MATH_COUNT - 1 + 1; // 4
+const EXTERNAL_COUNT: u32 = <ExternalError as ContractErrorSpec>::TOTAL_CODES; // 3
+const UNKNOWN_ERROR: u32 = UNKNOWN_ERROR_CODE;                 // i32::MAX
+```
+
+This guarantees no code collisions and produces compact, predictable codes.
+
+**Inner type requirement:** All types used with `#[transparent]` or `#[from_contract_client]` must implement `ContractError` and `ContractErrorSpec`. These traits are automatically provided by:
+- `#[scerr]` (for locally-defined error types)
+- `contractimport!` (for error types imported from WASM)
+
+Using a plain `#[contracterror]` type without these traits will produce a **compile error**.
+
+> **Note on `contractimport!`**: When importing a WASM contract via `contractimport!`, the `ContractErrorSpec` trait is generated for all error types found in the WASM spec — even if the original contract used plain `#[contracterror]` instead of `#[scerr]`. This means cross-contract error composition works with any contract, as long as its errors are imported via `contractimport!`. The compile error only occurs when using a Cargo dependency that defines a plain `#[contracterror]` type without `#[scerr]`.
+
+#### WASM Spec Flattening
+
+Composable error enums produce a fully flattened error enum in the WASM contract spec (`ScSpecUdtErrorEnumV0`). All inner error variants are recursively expanded with prefixed names and sequential codes, making every error code visible to TypeScript bindings and other tooling.
+
+For example, given this nesting:
+```rust
+#[scerr]
+pub enum DeepError { DeepFailureOne, DeepFailureTwo }
+
+#[scerr]
+pub enum MiddleError {
+    MiddleFailure,
+    #[from_contract_client]
+    Deep(DeepError),
+}
+
+#[scerr]
+pub enum OuterError {
+    OuterFailure,
+    #[from_contract_client]
+    Middle(MiddleError),
+}
+```
+
+The WASM spec for `OuterError` contains:
+```
+Aborted                 = 0
+OuterFailure            = 1
+Middle_MiddleFailure    = 2
+Middle_Deep_DeepFailureOne  = 3
+Middle_Deep_DeepFailureTwo  = 4
+Middle_Aborted          = 5
+Middle_UnknownError     = 6
+UnknownError            = 2147483647  (UNKNOWN_ERROR_CODE)
+```
+
+TypeScript developers see a single flat enum with all error codes — no gaps, no hidden variants.
+
+**Requirements for flattened specs:** Inner types must provide a `SPEC_TREE` via `ContractErrorSpec`. This is automatically generated by:
+- `#[scerr]` (for locally-defined error types)
+- `contractimport!` (for any WASM error type, including plain `#[contracterror]`)
 
 #### Mixed Usage Example
 
 You can use both `#[transparent]` and `#[from_contract_client]` for the same error type:
 
 ```rust
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum AppError {
     // For direct calls (same Wasm instance)
     #[transparent]
     MathDirect(#[from] MathError),
-    
+
     // For cross-contract calls
     #[from_contract_client]
     MathRemote(MathError),
@@ -390,78 +456,41 @@ println!("{}", err.description()); // "insufficient balance for transfer"
 
 #### Best Practices
 
-- **Basic mode**: Use for simple contracts without cross-contract calls
-- **Root mode**: Use in contracts that call other contracts or need error composition
+- **Simple errors**: Just use `#[scerr]` for contracts without cross-contract calls
+- **Composable errors**: Add `#[transparent]` or `#[from_contract_client]` attributes for cross-contract error handling
+- **Inner types**: All types wrapped by `#[transparent]` or `#[from_contract_client]` must use `#[scerr]` (for local types) or `contractimport!` (for imported types). Plain `#[contracterror]` types will cause a compile error.
 - **Transparent**: Use for in-process error propagation (same Wasm)
 - **from_contract_client**: Use for cross-contract invocations
-- **handle_abort**: Set to `"auto"` or add `#[abort]` variant to gracefully handle aborts instead of panicking
-- **handle_unknown**: Set to `"auto"` for resilient error handling when calling contracts with unknown error codes
-- **log_unknown_errors**: Enable for debugging/monitoring unknown errors in production
+- **Abort & Unknown**: `Aborted` (code 0) and `UnknownError` (code `UNKNOWN_ERROR_CODE`) variants are always auto-generated in composable enums
 
-#### Cross-Contract Imports with TypeScript Bindings
+#### Cross-Contract Imports
 
-When importing contracts via WASM files, use `contractimport_with_errors!` with the `scerr_variant` and `outer_error` parameters to generate well-organized TypeScript bindings:
+When importing contracts via WASM files, use `contractimport!` to generate the standard import plus the `ContractError` and `ContractErrorSpec` trait implementations needed by `#[scerr]`:
 
 ```rust
 mod math_imported {
-    soroban_sdk_tools::contractimport_with_errors!(
-        file = "../target/wasm32v1-none/release/math_contract.wasm",
-        scerr_variant = "Math",        // Must match the variant name in scerr
-        outer_error = "AppError"       // Names the flattened spec for clarity
+    soroban_sdk_tools::contractimport!(
+        file = "../target/wasm32v1-none/release/math_contract.wasm"
     );
 }
 
-#[scerr(mode = "root", handle_abort = "auto", handle_unknown = "auto")]
+#[scerr]
 pub enum AppError {
     Unauthorized,
 
     #[from_contract_client]
-    Math(math_imported::MathError),  // Variant name matches scerr_variant
+    Math(math_imported::MathError),
 }
 ```
 
-This produces TypeScript bindings with clear naming relationships:
-
-```typescript
-// Inner error codes (raw)
-export const MathError = {
-  704653: {message: "DivisionByZero"},
-  3712432: {message: "NegativeInput"}
-}
-
-// Flattened codes - named to show relationship to AppError
-export const AppError_Math = {
-  2915745933: {message: "Math_DivisionByZero"},
-  2918753712: {message: "Math_NegativeInput"}
-}
-
-// Main error enum with unit variants
-export const AppError = {
-  1: {message: "Unauthorized"},
-  696: {message: "Aborted"},
-  697: {message: "UnknownError"}
-}
-```
-
-Combine them for comprehensive error matching:
-
-```typescript
-// Create a combined error map
-const AllErrors = {...AppError, ...AppError_Math};
-
-try {
-  await client.div_imported({math_id, num: 10n, denom: 0n});
-} catch (e) {
-  const code = getErrorCode(e);
-  if (code in AllErrors) {
-    console.log(`Error: ${AllErrors[code].message}`);
-  }
-}
-```
+The macro generates:
+- The standard `contractimport!` output (client, types, etc.)
+- `ContractError` impl (`into_code`, `from_code`, `description`) for each imported error type
+- `ContractErrorSpec` impl (variant metadata) for each imported error type
 
 **Parameters**:
-- `scerr_variant`: Must match the variant name in `#[from_contract_client]`. Used for namespace computation.
-- `outer_error`: Names the flattened spec as `{outer_error}_{variant}` (e.g., `AppError_Math`). If omitted, defaults to `{variant}_Flattened`.
+- `file` (required): Path to the WASM file to import
+- `sha256` (optional): SHA256 hash to verify the WASM file
 
 ### Authorization Testing
 

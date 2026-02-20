@@ -1,38 +1,27 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env};
-use soroban_sdk_tools::{scerr, ContractError};
+use soroban_sdk_tools::scerr;
 
 mod external {
-    use soroban_sdk::InvokeError;
-    use soroban_sdk_tools::ContractError;
-
-    soroban_sdk::contractimport!(
+    soroban_sdk_tools::contractimport!(
         file = "../../../target/stellar/soroban_errors_external_contract.wasm"
     );
-    impl ContractError for MathError {
-        fn into_code(self) -> u32 {
-            self as u32
-        }
-
-        fn from_code(code: u32) -> Option<Self> {
-            InvokeError::Contract(code).try_into().ok()
-        }
-
-        fn description(&self) -> &'static str {
-            "bla bla bla"
-        }
-    }
 }
-use external::MathError;
+mod calc {
+    soroban_sdk_tools::contractimport!(
+        file = "../../../target/stellar/soroban_errors_calc_contract.wasm"
+    );
+}
 
-#[scerr(mode = "root")]
+#[scerr]
 pub enum Error {
     /// unauthorized
     Unauthorized,
 
-    // Both for MathError
     #[from_contract_client]
-    Math(#[from] MathError),
+    Math(#[from] external::MathError),
+    #[from_contract_client]
+    Calc(#[from] calc::CalcError),
 }
 
 #[contract]
@@ -47,6 +36,18 @@ impl Contract {
         denom: &i64,
     ) -> Result<i64, Error> {
         Ok(external::Client::new(env, address).try_safe_div(num, denom)??)
+    }
+    pub fn safe_div_with_calc(
+        env: &Env,
+        address: &Address,
+        num: &i64,
+        denom: &i64,
+    ) -> Result<i64, Error> {
+        Ok(calc::Client::new(env, address).try_safe_div(num, denom)??)
+    }
+
+    pub fn error_panic(env: &Env, address: &Address) -> Result<i64, Error> {
+        Ok(external::Client::new(env, address).try_panic_error()??)
     }
 }
 

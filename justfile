@@ -9,8 +9,13 @@ path:
 
 # build contracts
 build:
-    stellar contract build --optimize --package soroban-errors-external-contract --out-dir target/stellar
-    stellar contract build --optimize --package soroban-errors-contract --out-dir target/stellar
+    just _build soroban-errors-external-contract
+    just _build soroban-errors-calc-contract
+    just _build soroban-errors-contract
+
+[private]
+_build arg:
+    stellar contract build --optimize --package {{ arg }} --out-dir target/stellar --profile contract
 
 # Setup the project to use a pinned version of the CLI
 setup:
