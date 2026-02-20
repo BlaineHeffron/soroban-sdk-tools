@@ -3,7 +3,14 @@
 //! This module provides common functionality used across the contract,
 //! storage, and error macros.
 
+use std::path::PathBuf;
 use syn::{Error, Ident, Type};
+
+/// Convert a path relative to the crate's manifest directory to an absolute path.
+pub fn abs_from_rel_to_manifest(path: &str) -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    PathBuf::from(manifest_dir).join(path)
+}
 
 pub trait TypeExt {
     /// Get the base type name from a Type (e.g., `PersistentMap`<K, V> -> "`PersistentMap`")
@@ -35,6 +42,38 @@ pub trait TypeExt {
 
     /// Validate that a type is one of the supported storage types
     fn validate_storage_type(&self) -> syn::Result<()>;
+}
+
+/// Combine multiple `syn::Error` instances into a single error
+pub fn combine_errors(errors: Vec<Error>) -> Error {
+    errors
+        .into_iter()
+        .reduce(|mut a, b| {
+            a.combine(b);
+            a
+        })
+        .expect("At least one error expected")
+}
+
+/// Helper to collect results while aggregating errors.
+pub fn collect_results<T>(
+    results: impl IntoIterator<Item = syn::Result<T>>,
+) -> syn::Result<Vec<T>> {
+    let mut oks = Vec::new();
+    let mut errs: Vec<Error> = Vec::new();
+
+    for r in results {
+        match r {
+            Ok(v) => oks.push(v),
+            Err(e) => errs.push(e),
+        }
+    }
+
+    if errs.is_empty() {
+        Ok(oks)
+    } else {
+        Err(combine_errors(errs))
+    }
 }
 
 impl TypeExt for Type {

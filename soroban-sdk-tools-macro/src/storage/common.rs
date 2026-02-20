@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::util::TypeExt;
+use crate::util::{collect_results, combine_errors, TypeExt};
 use darling::FromMeta;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use quote::{format_ident, quote};
@@ -78,36 +78,6 @@ pub fn generate_item_key_wrapper(
                 ::soroban_sdk::Symbol::new(env, #prefix_lit).into_val(env)
             }
         }
-    }
-}
-
-/// Combine multiple `syn::Error` instances into a single error
-pub fn combine_errors(errors: Vec<Error>) -> Error {
-    errors
-        .into_iter()
-        .reduce(|mut a, b| {
-            a.combine(b);
-            a
-        })
-        .expect("At least one error expected")
-}
-
-// Helper to collect results while aggregating errors
-fn collect_results<T>(results: impl IntoIterator<Item = Result<T>>) -> Result<Vec<T>> {
-    let mut oks = Vec::new();
-    let mut errs: Vec<Error> = Vec::new();
-
-    for r in results {
-        match r {
-            Ok(v) => oks.push(v),
-            Err(e) => errs.push(e),
-        }
-    }
-
-    if errs.is_empty() {
-        Ok(oks)
-    } else {
-        Err(combine_errors(errs))
     }
 }
 

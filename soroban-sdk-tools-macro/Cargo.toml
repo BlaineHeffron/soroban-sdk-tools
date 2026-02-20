@@ -17,3 +17,7 @@ quote = { workspace = true }
 proc-macro2 = { workspace = true }
 darling = { workspace = true }
 heck = "0.5.0"
+soroban-spec = { workspace = true }
+soroban-spec-rust = { workspace = true }
+stellar-xdr = { workspace = true }
+sha2 = "0.10"

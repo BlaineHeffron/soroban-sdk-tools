@@ -1,0 +1,21 @@
+[package]
+name = "soroban-errors-external-contract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+rust-version = "1.80.0"
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+soroban-sdk-tools = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+
+[package.metadata.stellar]
+cargo_inherit = true

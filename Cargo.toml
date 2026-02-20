@@ -1,5 +1,10 @@
 [workspace]
-members = ["soroban-sdk-tools", "soroban-sdk-tools-macro", "examples/*"]
+members = [
+    "soroban-sdk-tools",
+    "soroban-sdk-tools-macro",
+    "examples/*/Cargo.toml",
+    "examples/errors/*",
+]
 resolver = "2"
 
 [workspace.package]
@@ -16,21 +21,27 @@ soroban-sdk-tools = { path = "soroban-sdk-tools", version = "0.1.0" }
 soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro", version = "0.1.0" }
 
 # Macro dependencies
-syn = { version = "2.0.111", features = ["full", "extra-traits"] }
-quote = "1.0.42"
+syn = { version = "2.0.114", features = ["full", "extra-traits"] }
+quote = "1.0.43"
 proc-macro2 = "1.0"
-darling = "0.21.3"
+darling = "0.23.0"
+soroban-spec = "23.4.1"
+soroban-spec-rust = "23.4.1"
+stellar-xdr = { version = "=23.0.0", default-features = false, features = [
+    "curr",
+] }
 
 
-# [profile.release]
-# opt-level = "z"
-# overflow-checks = true
-# debug = 0
-# strip = "symbols"
-# debug-assertions = false
-# panic = "abort"
-# codegen-units = 1
-# lto = true
+[profile.contract]
+inherits = "release"
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
 
 # [profile.release-with-logs]
 # inherits = "release"
