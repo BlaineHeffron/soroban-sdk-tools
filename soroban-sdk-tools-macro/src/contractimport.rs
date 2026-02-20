@@ -13,6 +13,7 @@ use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
 use std::fs;
+use soroban_spec_rust::types::generate_type_ident;
 use stellar_xdr::curr::{ScSpecEntry, ScSpecTypeDef};
 use syn::Error;
 
@@ -107,72 +108,12 @@ fn extract_functions(specs: &[ScSpecEntry]) -> Vec<FunctionInfo> {
         .collect()
 }
 
-/// Convert ScSpecTypeDef to Rust type tokens.
-fn spec_type_to_rust_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
-    match type_def {
-        ScSpecTypeDef::Val => quote! { soroban_sdk::Val },
-        ScSpecTypeDef::Bool => quote! { bool },
-        ScSpecTypeDef::Void => quote! { () },
-        ScSpecTypeDef::Error => quote! { soroban_sdk::Error },
-        ScSpecTypeDef::U32 => quote! { u32 },
-        ScSpecTypeDef::I32 => quote! { i32 },
-        ScSpecTypeDef::U64 => quote! { u64 },
-        ScSpecTypeDef::I64 => quote! { i64 },
-        ScSpecTypeDef::Timepoint => quote! { soroban_sdk::Timepoint },
-        ScSpecTypeDef::Duration => quote! { soroban_sdk::Duration },
-        ScSpecTypeDef::U128 => quote! { u128 },
-        ScSpecTypeDef::I128 => quote! { i128 },
-        ScSpecTypeDef::U256 => quote! { soroban_sdk::U256 },
-        ScSpecTypeDef::I256 => quote! { soroban_sdk::I256 },
-        ScSpecTypeDef::Bytes => quote! { soroban_sdk::Bytes },
-        ScSpecTypeDef::String => quote! { soroban_sdk::String },
-        ScSpecTypeDef::Symbol => quote! { soroban_sdk::Symbol },
-        ScSpecTypeDef::Address => quote! { soroban_sdk::Address },
-        ScSpecTypeDef::MuxedAddress => quote! { soroban_sdk::Address },
-        ScSpecTypeDef::Option(inner) => {
-            let inner_ty = spec_type_to_rust_type(&inner.value_type);
-            quote! { Option<#inner_ty> }
-        }
-        ScSpecTypeDef::Result(inner) => {
-            let ok_ty = spec_type_to_rust_type(&inner.ok_type);
-            let err_ty = spec_type_to_rust_type(&inner.error_type);
-            quote! { Result<#ok_ty, #err_ty> }
-        }
-        ScSpecTypeDef::Vec(inner) => {
-            let elem_ty = spec_type_to_rust_type(&inner.element_type);
-            quote! { soroban_sdk::Vec<#elem_ty> }
-        }
-        ScSpecTypeDef::Map(inner) => {
-            let key_ty = spec_type_to_rust_type(&inner.key_type);
-            let val_ty = spec_type_to_rust_type(&inner.value_type);
-            quote! { soroban_sdk::Map<#key_ty, #val_ty> }
-        }
-        ScSpecTypeDef::Tuple(inner) => {
-            let types: Vec<_> = inner
-                .value_types
-                .iter()
-                .map(spec_type_to_rust_type)
-                .collect();
-            quote! { (#(#types),*) }
-        }
-        ScSpecTypeDef::BytesN(inner) => {
-            let n = inner.n;
-            quote! { soroban_sdk::BytesN<#n> }
-        }
-        ScSpecTypeDef::Udt(inner) => {
-            // UDT types are defined in the same module
-            let name = format_ident!("{}", inner.name.to_utf8_string_lossy());
-            quote! { #name }
-        }
-    }
-}
-
 /// Unwrap a Result type to get the Ok type.
 /// The standard Client methods return the Ok type (not the full Result).
 fn unwrap_result_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
     match type_def {
-        ScSpecTypeDef::Result(inner) => spec_type_to_rust_type(&inner.ok_type),
-        _ => spec_type_to_rust_type(type_def),
+        ScSpecTypeDef::Result(inner) => generate_type_ident(&inner.ok_type),
+        _ => generate_type_ident(type_def),
     }
 }
 
@@ -281,7 +222,7 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
         .iter()
         .map(|input| {
             let name = format_ident!("{}", input.name);
-            let ty = spec_type_to_rust_type(&input.type_def);
+            let ty = generate_type_ident(&input.type_def);
             quote! { #name: &'b #ty }
         })
         .collect();
