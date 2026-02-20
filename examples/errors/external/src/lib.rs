@@ -2,11 +2,19 @@
 use soroban_sdk::{contract, contracterror, contractimpl, Env};
 use soroban_sdk_tools::scerr;
 
+mod calc {
+    soroban_sdk_tools::contractimport!(
+        file = "../../../target/stellar/soroban_errors_calc_contract.wasm"
+    );
+}
+
 #[scerr]
 pub enum MathError {
     ///division by zero
     DivisionByZero,
     NegativeInput,
+    #[from_contract_client]
+    Calc(calc::CalcError),
 }
 
 #[contracterror]

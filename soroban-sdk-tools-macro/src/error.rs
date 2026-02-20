@@ -753,7 +753,7 @@ fn generate_invoke_error_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro
                         // Try exact match against our sequential codes.
                         // from_code covers the entire contiguous range 1..=TOTAL_CODES,
                         // so any code outside that range is truly unknown.
-                        if let Some(decoded) = Self::from_code(code) {
+                        if let Some(decoded) = <Self as soroban_sdk_tools::error::ContractError>::from_code(code) {
                             return decoded;
                         }
                         #unknown_handler
@@ -785,6 +785,7 @@ fn generate_soroban_conversions(name: &Ident) -> proc_macro2::TokenStream {
         impl soroban_sdk::IntoVal<soroban_sdk::Env, soroban_sdk::Val> for #name {
             fn into_val(&self, env: &soroban_sdk::Env) -> soroban_sdk::Val {
                 use soroban_sdk::IntoVal;
+                use soroban_sdk_tools::error::ContractError;
                 let code: u32 = (*self).into_code();
                 soroban_sdk::Error::from_contract_error(code).into_val(env)
             }
@@ -803,12 +804,13 @@ fn generate_soroban_conversions(name: &Ident) -> proc_macro2::TokenStream {
         }
         impl From<#name> for soroban_sdk::Error {
             fn from(err: #name) -> soroban_sdk::Error {
+                use soroban_sdk_tools::error::ContractError;
                 soroban_sdk::Error::from_contract_error(err.into_code())
             }
         }
         impl From<&#name> for soroban_sdk::Error {
             fn from(err: &#name) -> soroban_sdk::Error {
-                soroban_sdk::Error::from_contract_error((*err).into_code())
+                (*err).into()
             }
         }
     }

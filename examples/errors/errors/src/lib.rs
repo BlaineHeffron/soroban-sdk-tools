@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env};
-use soroban_sdk_tools::{scerr, ContractError};
+use soroban_sdk_tools::scerr;
 
 mod external {
     soroban_sdk_tools::contractimport!(
