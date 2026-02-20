@@ -595,6 +595,36 @@ fn test_setup_mock_auth_empty_authorizers_is_noop() {
     client.action(&user);
 }
 
+/// Calling invoke() without any authorize() should not set up mock auth,
+/// so a contract requiring auth should panic.
+#[test]
+#[should_panic]
+fn test_call_builder_invoke_without_authorize_fails() {
+    let env = Env::default();
+    let contract_id = env.register(token::WASM, ());
+    let client = token::Client::new(&env, &contract_id);
+    let auth_client = token::AuthClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Setup with mock_all_auths
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.mint(&alice, &1000);
+
+    // Clear mock auth state by setting explicit empty auths
+    env.mock_auths(&[]);
+
+    // Now invoke transfer via AuthClient WITHOUT any authorize().
+    // This should fail because invoke() with no authorizers skips mock auth
+    // setup, and we cleared prior mock_all_auths.
+    auth_client
+        .transfer(&alice, &bob, &100)
+        .invoke();
+}
+
 #[test]
 #[should_panic]
 fn test_setup_mock_auth_wrong_authorizer_fails() {

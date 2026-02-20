@@ -153,7 +153,7 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
     let methods: Vec<_> = functions.iter().map(generate_auth_client_method).collect();
 
     quote! {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testutils"))]
         extern crate alloc as __alloc;
 
         /// Auth-testing wrapper client for simplified authorization testing.
@@ -176,12 +176,12 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
         ///     .authorize(&signer2)
         ///     .invoke();
         /// ```
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testutils"))]
         pub struct AuthClient<'a> {
             inner: Client<'a>,
         }
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testutils"))]
         impl<'a> AuthClient<'a> {
             /// Create a new AuthClient wrapping a contract at the given address.
             pub fn new(env: &'a soroban_sdk::Env, address: &'a soroban_sdk::Address) -> Self {

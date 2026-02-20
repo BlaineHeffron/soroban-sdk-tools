@@ -26,6 +26,7 @@
 //! }
 //! ```
 
+#[cfg(any(test, feature = "testutils"))]
 extern crate alloc;
 
 #[cfg(any(test, feature = "testutils"))]
