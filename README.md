@@ -157,32 +157,9 @@ This generates:
 
 **Descriptions**: Doc comments (`///`) on variants become human-readable error descriptions. Without a doc comment, the variant name is used.
 
-#### Auto-Detection: Basic vs Advanced Mode
-
-The scerr macro **automatically detects** whether your error enum needs basic or advanced (composable) mode based on the enum's structure:
-
-**Basic mode** (auto-detected): All variants are unit variants with no special attributes
-```rust
-#[scerr]
-pub enum SimpleError {
-    NotFound,
-    Unauthorized,
-}
-```
-
-**Advanced mode** (auto-detected): Any variant has `#[transparent]`, `#[from_contract_client]`, `#[abort]`, `#[sentinel]` attributes, or carries data
-```rust
-#[scerr]
-pub enum ComposableError {
-    Unauthorized,
-    #[from_contract_client]
-    External(ExternalError),  // Auto-detects advanced mode
-}
-```
-
 #### Composable Errors
 
-For contracts that call other contracts or need to propagate errors from sub-modules:
+For contracts that call other contracts or need to propagate errors from sub-modules, add `#[transparent]` or `#[from_contract_client]` variants. The macro automatically generates `Aborted` (code 0) and `UnknownError` (code `UNKNOWN_ERROR_CODE`) variants for handling cross-contract edge cases:
 
 ```rust
 use soroban_sdk_tools::scerr;
@@ -195,7 +172,6 @@ pub enum MathError {
 }
 
 // Outer contract with composable error handling
-// Mode is auto-detected due to #[transparent] and #[from_contract_client]
 #[scerr]
 pub enum AppError {
     // Own error variants
@@ -212,7 +188,7 @@ pub enum AppError {
 }
 ```
 
-**Advanced mode features**:
+**Composable error features**:
 
 1. **Transparent Propagation** (`#[transparent]`): For in-process error propagation using `?` operator
    ```rust
@@ -242,138 +218,38 @@ pub enum AppError {
 
 #### Cross-Contract Error Handling Options
 
-When using cross-contract error composition, you can configure handling for edge cases:
+When using cross-contract error composition, the macro automatically handles edge cases:
 
-##### Abort Handling (`handle_abort`)
+##### Abort Handling
 
-Controls how `InvokeError::Abort` (error code 0) is handled:
-
-- **`"auto"` (default)**: Auto-generates an `Aborted` variant
-  ```rust
-  #[scerr]  // Auto-generates Aborted variant by default
-  pub enum AppError {
-      #[from_contract_client]
-      Math(MathError),
-      // Auto-generated: Aborted
-  }
-  ```
-
-- **`"panic"`**: Panics when an external call aborts
-  ```rust
-  #[scerr(handle_abort = "panic")]
-  pub enum AppError {
-      #[from_contract_client]
-      Math(MathError),
-  }
-  ```
-
-- **Custom with `#[abort]`**: Define your own abort handler
-  ```rust
-  #[scerr]
-  pub enum AppError {
-      #[abort]
-      CallAborted,  // Catches InvokeError::Abort
-      #[from_contract_client]
-      Math(MathError),
-  }
-  ```
-
-##### Unknown Error Handling (`handle_unknown`)
-
-Controls how unmapped error codes from external contracts are handled:
-
-- **`"auto"` (default)**: Auto-generates an `UnknownError` variant
-  ```rust
-  #[scerr]  // Auto-generates UnknownError variant by default
-  pub enum AppError {
-      #[from_contract_client]
-      Math(MathError),
-      // Auto-generated: UnknownError
-  }
-  ```
-
-- **`"panic"`**: Panics on unknown error codes
-  ```rust
-  #[scerr(handle_unknown = "panic")]
-  pub enum AppError {
-      #[from_contract_client]
-      Math(MathError),
-  }
-  ```
-
-- **Custom with `#[sentinel]`**: Define your own unknown error handler
-  ```rust
-  #[scerr]
-  pub enum AppError {
-      #[sentinel]
-      Unmapped,  // Unit variant
-
-      // Or store the unknown code:
-      #[sentinel]
-      UnknownError(u32),  // Stores original error code
-      #[from_contract_client]
-      Math(MathError),
-  }
-  ```
-
-##### Error Logging (`log_unknown_errors`)
-
-When enabled, logs unknown error codes via `env.logs().add()` before mapping to the sentinel variant:
+An `Aborted` variant (code 0) is always auto-generated in composable error enums. It catches `InvokeError::Abort` from cross-contract calls:
 
 ```rust
-#[scerr(log_unknown_errors = true)]
+#[scerr]
 pub enum AppError {
-    InvalidInput,
     #[from_contract_client]
     Math(MathError),
-    // Auto-generated: Aborted, UnknownError(u32) - stores code for logging
-}
-
-// Use the logging helper in your contract:
-pub fn call_external(env: Env, id: Address) -> Result<(), AppError> {
-    let client = ExternalClient::new(&env, &id);
-    let result = client.try_some_method();
-
-    match result {
-        Ok(v) => v,
-        Err(e) => return Err(AppError::from_invoke_error(&env, e)),
-    }?;
-
-    Ok(())
+    // Auto-generated: Aborted (code 0)
+    // Auto-generated: UnknownError (code UNKNOWN_ERROR_CODE)
 }
 ```
 
-**Requirements**: `log_unknown_errors = true` requires either `handle_unknown = "auto"` or an explicit `#[sentinel]` variant with code storage.
+##### Unknown Error Handling
 
-##### Complete Configuration Example
+Unknown error codes from external contracts are always caught by the auto-generated `UnknownError` sentinel variant (code `UNKNOWN_ERROR_CODE` / `i32::MAX`). This variant is always added to advanced-mode enums and cannot be customized.
 
 ```rust
-#[scerr(
-    handle_abort = "auto",       // Auto-generate Aborted variant
-    handle_unknown = "auto",     // Auto-generate UnknownError variant
-    log_unknown_errors = true    // Log unknown codes
-)]
+#[scerr]
 pub enum AppError {
-    // Your error variants
-    Unauthorized,
-    InvalidState,
-
-    // Cross-contract errors
     #[from_contract_client]
     Math(MathError),
-
-    #[from_contract_client]
-    Token(TokenError),
-
-    // Auto-generated variants:
-    // - Aborted
-    // - UnknownError(u32)
+    // Auto-generated: Aborted (code 0), UnknownError (code UNKNOWN_ERROR_CODE)
 }
 ```
 
 #### Architecture: Sequential Code Assignment
 
-Advanced mode assigns error codes **sequentially** starting at 1. When a variant wraps another error type (via `#[transparent]` or `#[from_contract_client]`), the inner type's variants are **flattened** into the sequential range at their position.
+Error codes are assigned **sequentially** starting at 1. When a variant wraps another error type (via `#[transparent]` or `#[from_contract_client]`), the inner type's variants are **flattened** into the sequential range at their position. The `Aborted` variant always gets code 0, and the `UnknownError` sentinel always gets code `UNKNOWN_ERROR_CODE` (`i32::MAX`).
 
 For example, given:
 ```rust
@@ -384,18 +260,19 @@ pub enum AppError {
     Math(#[from] MathError),                // codes 2-3 (MathError has 2 variants)
     #[from_contract_client]
     External(ExternalError),                // codes 4-6 (ExternalError has 3 variants)
-    // Auto-generated: Aborted = 7, UnknownError = 8
+    // Auto-generated: Aborted = 0, UnknownError = UNKNOWN_ERROR_CODE (i32::MAX)
 }
 ```
 
 Code assignment uses **const-chaining** at compile time:
 ```rust
+const ABORTED: u32 = 0;                                       // fixed
 const UNAUTHORIZED: u32 = 1;
 const MATH_OFFSET: u32 = UNAUTHORIZED + 1;                    // 2
-const MATH_COUNT: u32 = <MathError as ContractErrorSpec>::SPEC_ENTRIES.len(); // 2
+const MATH_COUNT: u32 = <MathError as ContractErrorSpec>::TOTAL_CODES; // 2
 const EXTERNAL_OFFSET: u32 = MATH_OFFSET + MATH_COUNT - 1 + 1; // 4
-const EXTERNAL_COUNT: u32 = <ExternalError as ContractErrorSpec>::SPEC_ENTRIES.len(); // 3
-const ABORTED: u32 = EXTERNAL_OFFSET + EXTERNAL_COUNT - 1 + 1; // 7
+const EXTERNAL_COUNT: u32 = <ExternalError as ContractErrorSpec>::TOTAL_CODES; // 3
+const UNKNOWN_ERROR: u32 = UNKNOWN_ERROR_CODE;                 // i32::MAX
 ```
 
 This guarantees no code collisions and produces compact, predictable codes.
@@ -410,7 +287,7 @@ Using a plain `#[contracterror]` type without these traits will produce a **comp
 
 #### WASM Spec Flattening
 
-Advanced-mode enums produce a fully flattened error enum in the WASM contract spec (`ScSpecUdtErrorEnumV0`). All inner error variants are recursively expanded with prefixed names and sequential codes, making every error code visible to TypeScript bindings and other tooling.
+Composable error enums produce a fully flattened error enum in the WASM contract spec (`ScSpecUdtErrorEnumV0`). All inner error variants are recursively expanded with prefixed names and sequential codes, making every error code visible to TypeScript bindings and other tooling.
 
 For example, given this nesting:
 ```rust
@@ -434,20 +311,20 @@ pub enum OuterError {
 
 The WASM spec for `OuterError` contains:
 ```
+Aborted                 = 0
 OuterFailure            = 1
 Middle_MiddleFailure    = 2
 Middle_Deep_DeepFailureOne  = 3
 Middle_Deep_DeepFailureTwo  = 4
 Middle_Aborted          = 5
 Middle_UnknownError     = 6
-Aborted                 = 7
-UnknownError            = 8
+UnknownError            = 2147483647  (UNKNOWN_ERROR_CODE)
 ```
 
 TypeScript developers see a single flat enum with all error codes — no gaps, no hidden variants.
 
 **Requirements for flattened specs:** Inner types must provide a `SPEC_TREE` via `ContractErrorSpec`. This is automatically generated by:
-- `#[scerr]` (both basic and advanced mode)
+- `#[scerr]` (for locally-defined error types)
 - `contractimport!` (for any WASM error type, including plain `#[contracterror]`)
 
 #### Mixed Usage Example
@@ -490,13 +367,11 @@ println!("{}", err.description()); // "insufficient balance for transfer"
 #### Best Practices
 
 - **Simple errors**: Just use `#[scerr]` for contracts without cross-contract calls
-- **Composable errors**: Add `#[transparent]` or `#[from_contract_client]` attributes and the macro auto-detects advanced mode
+- **Composable errors**: Add `#[transparent]` or `#[from_contract_client]` attributes for cross-contract error handling
 - **Inner types**: All types wrapped by `#[transparent]` or `#[from_contract_client]` must use `#[scerr]` (for local types) or `contractimport!` (for imported types). Plain `#[contracterror]` types will cause a compile error.
 - **Transparent**: Use for in-process error propagation (same Wasm)
 - **from_contract_client**: Use for cross-contract invocations
-- **handle_abort**: Set to `"auto"` or add `#[abort]` variant to gracefully handle aborts instead of panicking
-- **handle_unknown**: Set to `"auto"` for resilient error handling when calling contracts with unknown error codes
-- **log_unknown_errors**: Enable for debugging/monitoring unknown errors in production
+- **Abort & Unknown**: `Aborted` (code 0) and `UnknownError` (code `UNKNOWN_ERROR_CODE`) variants are always auto-generated in composable enums
 
 #### Cross-Contract Imports
 

@@ -38,18 +38,18 @@ pub fn contractstorage_module(attr: TokenStream, item: TokenStream) -> TokenStre
 
 /// Define a contract error enum with automatic sequential code assignment.
 ///
-/// Auto-detects basic mode (all unit variants) or advanced mode (composable
-/// errors with `#[transparent]`, `#[from_contract_client]`, `#[abort]`,
-/// `#[sentinel]`, or data-carrying variants).
+/// Auto-detects basic mode (all unit variants) or composable mode (errors
+/// with `#[transparent]`, `#[from_contract_client]`, or data-carrying variants).
 ///
 /// In basic mode, generates a `#[contracterror]` `#[repr(u32)]` enum with
 /// sequential codes starting at 1, plus `ContractError` and `ContractErrorSpec`
 /// trait implementations.
 ///
 /// In advanced mode, uses const-chaining to assign sequential codes where
-/// wrapped inner types are flattened at their position. Inner types must
-/// implement `ContractError` and `ContractErrorSpec` (provided by `#[scerr]`
-/// or `contractimport!`).
+/// wrapped inner types are flattened at their position. An `Aborted` variant
+/// (code 0) and `UnknownError` sentinel variant (code `UNKNOWN_ERROR_CODE`)
+/// are always auto-generated. Inner types must implement `ContractError` and
+/// `ContractErrorSpec` (provided by `#[scerr]` or `contractimport!`).
 ///
 /// # Example
 /// ```ignore

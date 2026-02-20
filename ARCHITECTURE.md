@@ -110,7 +110,7 @@ The crate builds upon Loam's SDK, re-exporting or wrapping its storage types (e.
 
 Soroban defines contract errors as `#[repr(u32)]` enums annotated with `#[contracterror]`. The `soroban-sdk-tools` crate introduces a composable error handling framework via the `#[scerr]` macro, enhancing developer productivity and ensuring robust error propagation across contracts. Key features:
 
-* **Automatic Sequential Code Assignment**: The `#[scerr]` attribute macro assigns each variant a sequential `u32` code starting at 1. The macro auto-detects basic mode (all unit variants) vs advanced mode (composable error variants with `#[transparent]`, `#[from_contract_client]`, `#[abort]`, `#[sentinel]`, or data).
+* **Automatic Sequential Code Assignment**: The `#[scerr]` attribute macro assigns each variant a sequential `u32` code starting at 1. The macro auto-detects basic mode (all unit variants) vs advanced mode (composable error variants with `#[transparent]`, `#[from_contract_client]`, or data). In advanced mode, an `Aborted` variant (code 0) and `UnknownError` sentinel variant (code `UNKNOWN_ERROR_CODE` / `i32::MAX`) are always auto-generated.
 
 
 * **Const-Chained Sequential Codes**: In advanced mode, wrapped variants (those using `#[transparent]` or `#[from_contract_client]`) have their inner type's variants flattened into the sequential range. Code assignment uses const-chaining at compile time, referencing `ContractErrorSpec::SPEC_ENTRIES.len()` to determine how many codes each inner type occupies. This guarantees collision-free codes without namespace hashing.
@@ -119,7 +119,7 @@ Soroban defines contract errors as `#[repr(u32)]` enums annotated with `#[contra
 
 * **Conversion Traits**: The `#[scerr]` macro implements `TryFromVal<Env>`, `IntoVal<Env>`, `From<InvokeError>`, and other required traits. `#[transparent]` enables in-process `?` operator propagation, while `#[from_contract_client]` enables cross-contract error decoding via the `??` operator pattern on `try_*` client methods.
 
-* **Error Propagation and Logging**: Configurable handling for abort conditions (`handle_abort`) and unknown error codes (`handle_unknown`) with optional logging (`log_unknown_errors`). The `panic_with_error!` macro simplifies triggering panics with contract errors.
+* **Error Propagation**: The auto-generated `Aborted` variant (code 0) catches abort conditions from cross-contract calls. Unknown error codes are always caught by the auto-generated `UnknownError` sentinel variant.
 
 The `#[scerr]` macro auto-detects advanced mode when composable error attributes are present, leveraging Rust's const evaluation and procedural macro system to assign codes at compile time.
 
@@ -202,9 +202,7 @@ The procedural macros, defined in the `soroban-sdk-tools-macro` crate (`src/cont
 
            This generates code to initialize the fields and interface with the Soroban ledger.
 
-* **\#\[scerr\]**: Applied to an enum to define a contract error type. Auto-detects basic mode (simple unit enums) or advanced mode (composable errors). In basic mode, generates a `#[contracterror]` `#[repr(u32)]` enum with sequential codes. In advanced mode, generates a composable error type with const-chained sequential codes, `From` impls, `From<InvokeError>` for cross-contract decoding, and the `??` operator pattern. Supports `#[transparent]`, `#[from_contract_client]`, `#[abort]`, `#[sentinel]` variant attributes, and `handle_abort`, `handle_unknown`, `log_unknown_errors` options.
-
-* **Helper Macros**: The crate includes a function-like macro, `error!()`, which wraps Soroban’s `panic_with_error!` to simplify triggering panics with contract errors. This macro integrates with the contract specification to map error codes to descriptive messages, enhancing debugging.
+* **\#\[scerr\]**: Applied to an enum to define a contract error type. Auto-detects basic mode (simple unit enums) or advanced mode (composable errors). In basic mode, generates a `#[contracterror]` `#[repr(u32)]` enum with sequential codes. In advanced mode, generates a composable error type with const-chained sequential codes, `From` impls, `From<InvokeError>` for cross-contract decoding, and the `??` operator pattern. Supports `#[transparent]` and `#[from_contract_client]` variant attributes. An `Aborted` (code 0) and `UnknownError` (code `UNKNOWN_ERROR_CODE`) sentinel are always auto-generated in advanced mode.
 
 These macros, implemented in the `soroban-sdk-tools-macro` crate, rely on the `storage`, `error`, and `key` modules in the `soroban-sdk-tools` crate for runtime logic. They enable developers to write concise, annotated structs and enums, with the macros generating all necessary Soroban-compatible code, including key optimization and error handling boilerplate. This approach ensures a streamlined development experience while maintaining compatibility with Soroban’s requirements.
 

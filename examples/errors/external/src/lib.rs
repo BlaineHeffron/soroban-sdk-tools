@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{contract, contracterror, contractimpl, Env};
-use soroban_sdk_tools::{panic_with_error, scerr};
+use soroban_sdk_tools::scerr;
 
 #[scerr]
 pub enum MathError {
@@ -32,7 +32,7 @@ impl Contract {
     }
 
     pub fn panic_error(e: &Env) -> Result<i64, MathError> {
-        panic_with_error!(e, OtherError::Other);
+        e.panic_with_error(OtherError::Other);
     }
 }
 

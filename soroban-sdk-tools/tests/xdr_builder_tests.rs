@@ -4,7 +4,9 @@
 //! produce correct XDR bytes for `ScSpecUdtErrorEnumV0` entries, exercising
 //! leaf-only trees, nested group trees, and edge cases.
 
-use soroban_sdk_tools::error::{build_error_enum_xdr, xdr_error_enum_size, SpecNode};
+use soroban_sdk_tools::error::{
+    build_error_enum_xdr, xdr_error_enum_size, SpecNode, UNKNOWN_ERROR_CODE,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers for reading XDR bytes
@@ -128,7 +130,9 @@ const INNER_TREE: &[SpecNode] = &[
     },
 ];
 
-const MIDDLE_TREE: &[SpecNode] = &[
+/// Full tree for MiddleError's own XDR spec (includes sentinels with real codes).
+/// This mirrors what `__SPEC_FULL_TREE_MIDDLEERROR` would generate.
+const MIDDLE_FULL_TREE: &[SpecNode] = &[
     SpecNode {
         code: 1,
         name: "MiddleFailure",
@@ -148,23 +152,46 @@ const MIDDLE_TREE: &[SpecNode] = &[
         children: INNER_TREE,
     },
     SpecNode {
-        code: 5,
+        code: 0,
         name: "Aborted",
         description: "Cross-contract call aborted",
         children: &[],
     },
     SpecNode {
-        code: 6,
+        code: UNKNOWN_ERROR_CODE,
         name: "UnknownError",
         description: "Unknown error from cross-contract call",
         children: &[],
     },
 ];
 
+/// SPEC_TREE for MiddleError (excludes sentinels) — used as children when
+/// an outer type wraps MiddleError via `#[from_contract_client]`.
+const MIDDLE_SPEC_TREE: &[SpecNode] = &[
+    SpecNode {
+        code: 1,
+        name: "MiddleFailure",
+        description: "middle-level failure",
+        children: &[],
+    },
+    SpecNode {
+        code: 2,
+        name: "MiddleOther",
+        description: "another middle error",
+        children: &[],
+    },
+    SpecNode {
+        code: 3, // offset where inner starts
+        name: "Deep",
+        description: "",
+        children: INNER_TREE,
+    },
+];
+
 #[test]
 fn single_nesting_size_and_build() {
-    const SIZE: usize = xdr_error_enum_size("MiddleError", "", MIDDLE_TREE);
-    let xdr: [u8; SIZE] = build_error_enum_xdr("MiddleError", "", MIDDLE_TREE);
+    const SIZE: usize = xdr_error_enum_size("MiddleError", "", MIDDLE_FULL_TREE);
+    let xdr: [u8; SIZE] = build_error_enum_xdr("MiddleError", "", MIDDLE_FULL_TREE);
 
     let (disc, _doc, _lib, name, cases) = parse_xdr_error_enum(&xdr);
 
@@ -185,18 +212,21 @@ fn single_nesting_size_and_build() {
     assert_eq!(cases[3].name, "Deep_DeepFailureTwo");
     assert_eq!(cases[3].value, 4);
 
-    // Remaining unit variants
+    // Sentinel variants with their real codes
     assert_eq!(cases[4].name, "Aborted");
-    assert_eq!(cases[4].value, 5);
+    assert_eq!(cases[4].value, 0);
     assert_eq!(cases[5].name, "UnknownError");
-    assert_eq!(cases[5].value, 6);
+    assert_eq!(cases[5].value, UNKNOWN_ERROR_CODE);
 }
 
 // ---------------------------------------------------------------------------
 // Tests: double-nested tree (root wrapping root)
 // ---------------------------------------------------------------------------
 
-const NESTED_TREE: &[SpecNode] = &[
+/// Full tree for NestedError's own XDR spec.
+/// Uses MIDDLE_SPEC_TREE (without sentinels) as children of the Middle group,
+/// since sentinels are excluded from SPEC_TREE to prevent duplication.
+const NESTED_FULL_TREE: &[SpecNode] = &[
     SpecNode {
         code: 1,
         name: "NestedFailure",
@@ -207,16 +237,16 @@ const NESTED_TREE: &[SpecNode] = &[
         code: 2, // offset where middle starts
         name: "Middle",
         description: "",
-        children: MIDDLE_TREE,
+        children: MIDDLE_SPEC_TREE,
     },
     SpecNode {
-        code: 8,
+        code: 0,
         name: "Aborted",
         description: "Cross-contract call aborted",
         children: &[],
     },
     SpecNode {
-        code: 9,
+        code: UNKNOWN_ERROR_CODE,
         name: "UnknownError",
         description: "Unknown error from cross-contract call",
         children: &[],
@@ -225,25 +255,23 @@ const NESTED_TREE: &[SpecNode] = &[
 
 #[test]
 fn double_nesting_size_and_build() {
-    const SIZE: usize = xdr_error_enum_size("NestedError", "", NESTED_TREE);
-    let xdr: [u8; SIZE] = build_error_enum_xdr("NestedError", "", NESTED_TREE);
+    const SIZE: usize = xdr_error_enum_size("NestedError", "", NESTED_FULL_TREE);
+    let xdr: [u8; SIZE] = build_error_enum_xdr("NestedError", "", NESTED_FULL_TREE);
 
     let (_, _doc, _lib, name, cases) = parse_xdr_error_enum(&xdr);
 
     assert_eq!(name, "NestedError");
-    assert_eq!(cases.len(), 9);
+    // 7 flattened variants: 1 own + 4 from Middle (no Middle sentinels) + 2 own sentinels
+    assert_eq!(cases.len(), 7);
 
-    // All 9 flattened variants with correct names and sequential codes
     let expected: &[(&str, u32)] = &[
         ("NestedFailure", 1),
         ("Middle_MiddleFailure", 2),
         ("Middle_MiddleOther", 3),
         ("Middle_Deep_DeepFailureOne", 4),
         ("Middle_Deep_DeepFailureTwo", 5),
-        ("Middle_Aborted", 6),
-        ("Middle_UnknownError", 7),
-        ("Aborted", 8),
-        ("UnknownError", 9),
+        ("Aborted", 0),
+        ("UnknownError", UNKNOWN_ERROR_CODE),
     ];
 
     for (i, (exp_name, exp_code)) in expected.iter().enumerate() {
@@ -381,6 +409,86 @@ fn group_only_tree_no_leaves_at_top() {
     assert_eq!(cases[0].value, 1);
     assert_eq!(cases[1].name, "Wrapped_InnerB");
     assert_eq!(cases[1].value, 2);
+}
+
+/// Regression test: verify that nesting a root-mode type's SPEC_TREE (without
+/// sentinels) produces correct sequential codes. If sentinels (Aborted=0,
+/// UnknownError=UNKNOWN_ERROR_CODE) were accidentally included as group
+/// children, the XDR builder would compute `base_offset + 0` (collision) and
+/// `base_offset + UNKNOWN_ERROR_CODE` (overflow).
+#[test]
+fn nested_sentinels_excluded_from_children() {
+    // Simulate the OLD (buggy) behavior: MIDDLE_FULL_TREE includes sentinels.
+    // If used as children of a group, the XDR builder applies base_offset + code:
+    //   Middle_Aborted = (2-1) + 0 = 1  ← collides with NestedFailure!
+    //   Middle_UnknownError = (2-1) + 2147483647 = overflow!
+    //
+    // Verify the fix: MIDDLE_SPEC_TREE (without sentinels) produces clean codes.
+    const TREE: &[SpecNode] = &[
+        SpecNode {
+            code: 1,
+            name: "NestedFailure",
+            description: "nested failure",
+            children: &[],
+        },
+        SpecNode {
+            code: 2,
+            name: "Middle",
+            description: "",
+            children: MIDDLE_SPEC_TREE, // no sentinels
+        },
+        SpecNode {
+            code: 0,
+            name: "Aborted",
+            description: "",
+            children: &[],
+        },
+        SpecNode {
+            code: UNKNOWN_ERROR_CODE,
+            name: "UnknownError",
+            description: "",
+            children: &[],
+        },
+    ];
+
+    const SIZE: usize = xdr_error_enum_size("NestedCheck", "", TREE);
+    let xdr: [u8; SIZE] = build_error_enum_xdr("NestedCheck", "", TREE);
+    let (_, _, _, _, cases) = parse_xdr_error_enum(&xdr);
+
+    // 7 cases: 1 own + 4 from Middle (2 unit + 2 Deep) + 2 own sentinels
+    assert_eq!(cases.len(), 7);
+
+    // Verify sequential codes with no collision
+    assert_eq!(cases[0].name, "NestedFailure");
+    assert_eq!(cases[0].value, 1);
+    assert_eq!(cases[1].name, "Middle_MiddleFailure");
+    assert_eq!(cases[1].value, 2);
+    assert_eq!(cases[2].name, "Middle_MiddleOther");
+    assert_eq!(cases[2].value, 3);
+    assert_eq!(cases[3].name, "Middle_Deep_DeepFailureOne");
+    assert_eq!(cases[3].value, 4);
+    assert_eq!(cases[4].name, "Middle_Deep_DeepFailureTwo");
+    assert_eq!(cases[4].value, 5);
+
+    // Own sentinels at their fixed codes
+    assert_eq!(cases[5].name, "Aborted");
+    assert_eq!(cases[5].value, 0);
+    assert_eq!(cases[6].name, "UnknownError");
+    assert_eq!(cases[6].value, UNKNOWN_ERROR_CODE);
+
+    // Verify no code collisions among sequential variants
+    let sequential_codes: Vec<u32> = cases[..5].iter().map(|c| c.value).collect();
+    for (i, code) in sequential_codes.iter().enumerate() {
+        for (j, other) in sequential_codes.iter().enumerate() {
+            if i != j {
+                assert_ne!(
+                    code, other,
+                    "code collision between case[{}] and case[{}]",
+                    i, j
+                );
+            }
+        }
+    }
 }
 
 #[test]

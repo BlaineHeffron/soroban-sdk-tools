@@ -3,10 +3,16 @@
 //! Provides traits and helper types for composable error handling
 //! with the `#[scerr]` macro. Error codes are assigned sequentially
 //! starting at 1, with wrapped inner types flattened at their position
-//! via const-chaining.
+//! via const-chaining. The `Aborted` variant always uses code 0, and
+//! the `UnknownError` sentinel always uses [`UNKNOWN_ERROR_CODE`].
 
 // Re-export contracterror for users
 pub use soroban_sdk::contracterror;
+
+/// The error code used for the unknown/sentinel error variant.
+/// Uses `i32::MAX as u32` for platform-independent consistency (matches
+/// `isize::MAX as u32` on wasm32 which is the Soroban target).
+pub const UNKNOWN_ERROR_CODE: u32 = i32::MAX as u32;
 
 /// Base trait for contract errors
 pub trait ContractError: Sized {
@@ -313,19 +319,4 @@ const fn copy_into(mut dst: [u8; 256], offset: usize, src: &[u8]) -> [u8; 256] {
         idx += 1;
     }
     dst
-}
-
-/// Helper to panic with an error and optional context
-#[macro_export]
-macro_rules! panic_with_error {
-    ($env:expr, $error:expr) => {{
-        let env: &soroban_sdk::Env = $env;
-        env.panic_with_error($error)
-    }};
-    ($env:expr, $error:expr, $msg:literal) => {{
-        let env: &soroban_sdk::Env = $env;
-        // In the future we could log `$msg` via events or debug logging
-        let _ = $msg;
-        env.panic_with_error($error)
-    }};
 }

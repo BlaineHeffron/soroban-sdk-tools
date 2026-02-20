@@ -224,8 +224,8 @@ fn root_mode_sequential_codes() {
     // MathClient (FCC, 2 variants): offset=4, count=2 → codes 4,5
     // Calc (transparent, 2 variants): offset=6, count=2 → codes 6,7
     // LogicClient (FCC, 2 variants): offset=8, count=2 → codes 8,9
-    // Aborted (auto) = 10
-    // UnknownError (auto) = 11
+    // Aborted (auto) = 0
+    // UnknownError (auto) = UNKNOWN_ERROR_CODE
 
     assert_eq!(OuterError::Unauthorized.into_code(), 1);
     assert_eq!(OuterError::Math(MathError::DivisionByZero).into_code(), 2);
@@ -248,8 +248,11 @@ fn root_mode_sequential_codes() {
         OuterError::LogicClient(LogicError::Unauthorized).into_code(),
         9
     );
-    assert_eq!(OuterError::Aborted.into_code(), 10);
-    assert_eq!(OuterError::UnknownError.into_code(), 11);
+    assert_eq!(OuterError::Aborted.into_code(), 0);
+    assert_eq!(
+        OuterError::UnknownError.into_code(),
+        soroban_sdk_tools::error::UNKNOWN_ERROR_CODE
+    );
 }
 
 #[test]
@@ -282,9 +285,16 @@ fn root_mode_from_code_roundtrip() {
 
 #[test]
 fn root_mode_from_code_out_of_range() {
-    assert!(OuterError::from_code(0).is_none());
-    assert!(OuterError::from_code(12).is_none());
+    // 0 is now Aborted, so it's not out of range
+    assert_eq!(OuterError::from_code(0), Some(OuterError::Aborted));
+    assert!(OuterError::from_code(10).is_none());
     assert!(OuterError::from_code(100).is_none());
+    // UNKNOWN_ERROR_CODE maps to UnknownError
+    assert_eq!(
+        OuterError::from_code(soroban_sdk_tools::error::UNKNOWN_ERROR_CODE),
+        Some(OuterError::UnknownError)
+    );
+    // u32::MAX is not UNKNOWN_ERROR_CODE (which is i32::MAX), so it's out of range
     assert!(OuterError::from_code(u32::MAX).is_none());
 }
 
@@ -485,8 +495,8 @@ fn root_to_root_sequential_codes() {
     // OuterRootError layout:
     // OuterUnauthorized = 1
     // Inner (FCC, 2 variants): offset=2, count=2 → codes 2,3
-    // Aborted (auto) = 4
-    // UnknownError (auto) = 5
+    // Aborted (auto) = 0
+    // UnknownError (auto) = UNKNOWN_ERROR_CODE
 
     assert_eq!(OuterRootError::OuterUnauthorized.into_code(), 1);
     assert_eq!(
@@ -497,8 +507,11 @@ fn root_to_root_sequential_codes() {
         OuterRootError::Inner(InnerRootError::InnerInvalidState).into_code(),
         3
     );
-    assert_eq!(OuterRootError::Aborted.into_code(), 4);
-    assert_eq!(OuterRootError::UnknownError.into_code(), 5);
+    assert_eq!(OuterRootError::Aborted.into_code(), 0);
+    assert_eq!(
+        OuterRootError::UnknownError.into_code(),
+        soroban_sdk_tools::error::UNKNOWN_ERROR_CODE
+    );
 }
 
 #[test]
@@ -654,61 +667,21 @@ fn test_auto_variants_sequential_codes() {
     // AutoError layout:
     // InvalidInput = 1
     // Math (FCC, 2 variants): offset=2, count=2 → codes 2,3
-    // Aborted (auto) = 4
-    // UnknownError (auto) = 5
+    // Aborted (auto) = 0
+    // UnknownError (auto) = UNKNOWN_ERROR_CODE
 
     assert_eq!(AutoError::InvalidInput.into_code(), 1);
     assert_eq!(AutoError::Math(MathError::DivisionByZero).into_code(), 2);
     assert_eq!(AutoError::Math(MathError::NegativeInput).into_code(), 3);
-    assert_eq!(AutoError::Aborted.into_code(), 4);
-    assert_eq!(AutoError::UnknownError.into_code(), 5);
+    assert_eq!(AutoError::Aborted.into_code(), 0);
+    assert_eq!(
+        AutoError::UnknownError.into_code(),
+        soroban_sdk_tools::error::UNKNOWN_ERROR_CODE
+    );
 }
 
 // -----------------------------------------------------------------------------
-// Test: Error logging with sentinel
-// -----------------------------------------------------------------------------
-
-#[scerr(handle_unknown = "auto", log_unknown_errors = true)]
-pub enum LoggingError {
-    InvalidInput,
-
-    #[from_contract_client]
-    Math(MathError),
-}
-
-#[contract]
-pub struct LoggingContract;
-
-#[contractimpl]
-impl LoggingContract {
-    pub fn call_with_logging(env: Env, math_id: Address) -> Result<i64, LoggingError> {
-        let client = MathClient::new(&env, &math_id);
-        let result = client.try_safe_div(&10, &0);
-
-        match result {
-            Ok(inner_result) => match inner_result {
-                Ok(val) => Ok(val),
-                Err(contract_err) => Err(LoggingError::from(contract_err)),
-            },
-            Err(inner_error) => match inner_error {
-                Ok(math_error) => Err(LoggingError::Math(math_error)),
-                Err(e) => Err(LoggingError::from_invoke_error(&env, e)),
-            },
-        }
-    }
-}
-
-#[test]
-fn test_logging_unknown_errors() {
-    let env = Env::default();
-    let contract_id = env.register(LoggingContract, ());
-    let client = LoggingContractClient::new(&env, &contract_id);
-
-    let _ = client.try_call_with_logging(&env.register(Math, ()));
-}
-
-// -----------------------------------------------------------------------------
-// Test: Panic mode (default behavior)
+// Test: Default behavior (auto abort + sentinel)
 // -----------------------------------------------------------------------------
 
 #[scerr]
@@ -732,27 +705,6 @@ impl PanicContract {
 }
 
 // Note: Can't easily test panic behavior in tests, but verifying compilation is valuable
-
-// -----------------------------------------------------------------------------
-// Test: Sentinel without code storage
-// -----------------------------------------------------------------------------
-
-#[scerr]
-pub enum SimpleSentinelError {
-    InvalidInput,
-
-    #[sentinel]
-    Unknown, // Unit variant - doesn't store code
-
-    #[from_contract_client]
-    Math(MathError),
-}
-
-#[test]
-fn test_simple_sentinel() {
-    let unknown = SimpleSentinelError::Unknown;
-    assert!(matches!(unknown, SimpleSentinelError::Unknown));
-}
 
 // -----------------------------------------------------------------------------
 // Test: Mixed transparent and from_contract_client
@@ -1178,8 +1130,8 @@ fn test_mixed_fcc_sequential_codes() {
     // StandardOp (FCC, 3 variants): offset=5, count=3 → codes 5,6,7
     // StorageOp (FCC, 3 variants): offset=8, count=3 → codes 8,9,10
     // LogicOp (FCC, 2 variants): offset=11, count=2 → codes 11,12
-    // Aborted (auto) = 13
-    // UnknownError (auto) = 14
+    // Aborted (auto) = 0
+    // UnknownError (auto) = UNKNOWN_ERROR_CODE
 
     assert_eq!(MixedFccError::NotPermitted.into_code(), 1);
     assert_eq!(MixedFccError::InvalidConfig.into_code(), 2);
@@ -1223,8 +1175,11 @@ fn test_mixed_fcc_sequential_codes() {
         MixedFccError::LogicOp(LogicError::Unauthorized).into_code(),
         12
     );
-    assert_eq!(MixedFccError::Aborted.into_code(), 13);
-    assert_eq!(MixedFccError::UnknownError.into_code(), 14);
+    assert_eq!(MixedFccError::Aborted.into_code(), 0);
+    assert_eq!(
+        MixedFccError::UnknownError.into_code(),
+        soroban_sdk_tools::error::UNKNOWN_ERROR_CODE
+    );
 }
 
 #[test]
@@ -1445,30 +1400,29 @@ fn root_mode_spec_entries_only_unit_variants() {
 #[test]
 fn root_mode_total_codes() {
     // OuterError: Unauthorized=1, Math[2]=2-3, MathClient[2]=4-5,
-    // Calc[2]=6-7, LogicClient[2]=8-9, Aborted=10, UnknownError=11
-    assert_eq!(OuterError::TOTAL_CODES, 11);
+    // Calc[2]=6-7, LogicClient[2]=8-9
+    // (Aborted=0 and UnknownError=UNKNOWN_ERROR_CODE are outside sequential range)
+    assert_eq!(OuterError::TOTAL_CODES, 9);
 
-    // OuterRootError: OuterUnauthorized=1, Inner[2]=2-3, Aborted=4, UnknownError=5
-    assert_eq!(OuterRootError::TOTAL_CODES, 5);
+    // OuterRootError: OuterUnauthorized=1, Inner[2]=2-3
+    assert_eq!(OuterRootError::TOTAL_CODES, 3);
 
-    // AutoError: InvalidInput=1, Math[2]=2-3, Aborted=4, UnknownError=5
-    assert_eq!(AutoError::TOTAL_CODES, 5);
+    // AutoError: InvalidInput=1, Math[2]=2-3
+    assert_eq!(AutoError::TOTAL_CODES, 3);
 
     // MixedFccError: NotPermitted=1, InvalidConfig=2, MathOp[2]=3-4,
-    // StandardOp[3]=5-7, StorageOp[3]=8-10, LogicOp[2]=11-12,
-    // Aborted=13, UnknownError=14
-    assert_eq!(MixedFccError::TOTAL_CODES, 14);
+    // StandardOp[3]=5-7, StorageOp[3]=8-10, LogicOp[2]=11-12
+    assert_eq!(MixedFccError::TOTAL_CODES, 12);
 }
 
 #[test]
 fn root_mode_spec_tree_structure() {
-    // OuterRootError tree should have:
+    // OuterRootError SPEC_TREE excludes sentinels (Aborted, UnknownError)
+    // so outer types don't duplicate them when nesting.
     // - OuterUnauthorized (leaf)
     // - Inner (group with InnerRootError's tree)
-    // - Aborted (leaf)
-    // - UnknownError (leaf)
     let tree = OuterRootError::SPEC_TREE;
-    assert_eq!(tree.len(), 4);
+    assert_eq!(tree.len(), 2);
 
     // Leaf: OuterUnauthorized
     assert!(tree[0].children.is_empty());
@@ -1482,25 +1436,15 @@ fn root_mode_spec_tree_structure() {
     assert_eq!(tree[1].children.len(), 2);
     assert_eq!(tree[1].children[0].name, "InnerUnauthorized");
     assert_eq!(tree[1].children[1].name, "InnerInvalidState");
-
-    // Leaf: Aborted
-    assert!(tree[2].children.is_empty());
-    assert_eq!(tree[2].name, "Aborted");
-    assert_eq!(tree[2].code, 4);
-
-    // Leaf: UnknownError
-    assert!(tree[3].children.is_empty());
-    assert_eq!(tree[3].name, "UnknownError");
-    assert_eq!(tree[3].code, 5);
 }
 
 #[test]
 fn root_mode_spec_tree_with_multiple_fcc_variants() {
-    // MixedFccError tree should have 8 nodes:
+    // MixedFccError SPEC_TREE excludes sentinels (Aborted, UnknownError):
     // NotPermitted, InvalidConfig, MathOp(group), StandardOp(group),
-    // StorageOp(group), LogicOp(group), Aborted, UnknownError
+    // StorageOp(group), LogicOp(group)
     let tree = MixedFccError::SPEC_TREE;
-    assert_eq!(tree.len(), 8);
+    assert_eq!(tree.len(), 6);
 
     // Unit leaves
     assert!(tree[0].children.is_empty());
@@ -1527,12 +1471,6 @@ fn root_mode_spec_tree_with_multiple_fcc_variants() {
     assert!(!tree[5].children.is_empty());
     assert_eq!(tree[5].name, "LogicOp");
     assert_eq!(tree[5].children.len(), 2);
-
-    // Auto-generated unit leaves
-    assert!(tree[6].children.is_empty());
-    assert_eq!(tree[6].name, "Aborted");
-    assert!(tree[7].children.is_empty());
-    assert_eq!(tree[7].name, "UnknownError");
 }
 
 // -----------------------------------------------------------------------------
@@ -1551,7 +1489,7 @@ pub enum FiveCodeError {
 // OverlapCallerError layout:
 // OwnFault1 = 1, OwnFault2 = 2, OwnFault3 = 3, OwnFault4 = 4, OwnFault5 = 5
 // Imported (FCC, 5 variants): offset=6, count=5 -> codes 6-10
-// Aborted (auto) = 11, UnknownError (auto) = 12
+// Aborted (auto) = 0, UnknownError (auto) = UNKNOWN_ERROR_CODE
 #[scerr]
 pub enum OverlapCallerError {
     OwnFault1,
@@ -1591,8 +1529,11 @@ fn overlap_caller_error_layout() {
         OverlapCallerError::Imported(FiveCodeError::Fault5).into_code(),
         10
     );
-    assert_eq!(OverlapCallerError::Aborted.into_code(), 11);
-    assert_eq!(OverlapCallerError::UnknownError.into_code(), 12);
+    assert_eq!(OverlapCallerError::Aborted.into_code(), 0);
+    assert_eq!(
+        OverlapCallerError::UnknownError.into_code(),
+        soroban_sdk_tools::error::UNKNOWN_ERROR_CODE
+    );
 }
 
 #[test]
