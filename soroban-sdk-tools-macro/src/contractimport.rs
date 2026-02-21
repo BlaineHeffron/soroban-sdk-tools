@@ -12,8 +12,8 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
-use std::fs;
 use soroban_spec_rust::types::generate_type_ident;
+use std::fs;
 use stellar_xdr::curr::{ScSpecEntry, ScSpecTypeDef};
 use syn::Error;
 

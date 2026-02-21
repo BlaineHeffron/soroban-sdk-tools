@@ -19,6 +19,7 @@ pub mod key;
 pub mod storage;
 
 // Auth module is always exported but its contents are gated by testutils
+#[cfg(any(test, feature = "testutils"))]
 pub mod auth;
 
 // Re-export commonly used types
@@ -29,4 +30,6 @@ pub use storage::{
 };
 
 #[cfg(any(test, feature = "testutils"))]
-pub use auth::setup_mock_auth;
+pub use auth::{
+    setup_mock_auth, setup_real_auth, Keypair, Secp256k1Keypair, Secp256r1Keypair, Signer,
+};
