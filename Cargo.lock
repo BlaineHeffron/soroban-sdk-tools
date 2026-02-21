@@ -1486,6 +1486,7 @@ name = "soroban-sdk-tools"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "soroban-sdk-tools",
  "soroban-sdk-tools-macro",
 ]
 

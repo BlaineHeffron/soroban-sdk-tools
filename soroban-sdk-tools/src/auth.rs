@@ -154,8 +154,10 @@ pub fn setup_mock_auth<A>(
 ) where
     A: IntoVal<Env, Vec<Val>>,
 {
-    // If no authorizers specified, skip mock setup
+    // If no authorizers specified, clear any prior mock auth state
+    // (e.g. mock_all_auths) so calls run with no authorization.
     if authorizers.is_empty() {
+        env.mock_auths(&[]);
         return;
     }
 
