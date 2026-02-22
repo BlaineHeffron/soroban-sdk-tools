@@ -521,7 +521,7 @@ pub fn setup_real_auth<A>(
 /// let kp = Keypair::random(&env);
 /// client.transfer(kp.address(), &bob, &100).sign(&kp).invoke();
 /// ```
-pub struct CallBuilder<'a, R> {
+pub struct CallBuilder<'a, R, TryR = ()> {
     env: &'a Env,
     contract: &'a Address,
     fn_name: &'static str,
@@ -529,9 +529,10 @@ pub struct CallBuilder<'a, R> {
     authorizers: StdVec<Address>,
     signers: StdVec<&'a dyn Signer>,
     invoker: Box<dyn FnOnce() -> R + 'a>,
+    try_invoker: Option<Box<dyn FnOnce() -> TryR + 'a>>,
 }
 
-impl<'a, R> CallBuilder<'a, R> {
+impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// Create a new CallBuilder.
     ///
     /// This is typically called by generated `AuthClient` methods, not directly.
@@ -541,6 +542,7 @@ impl<'a, R> CallBuilder<'a, R> {
         fn_name: &'static str,
         args: Vec<Val>,
         invoker: Box<dyn FnOnce() -> R + 'a>,
+        try_invoker: Option<Box<dyn FnOnce() -> TryR + 'a>>,
     ) -> Self {
         Self {
             env,
@@ -550,6 +552,7 @@ impl<'a, R> CallBuilder<'a, R> {
             authorizers: StdVec::new(),
             signers: StdVec::new(),
             invoker,
+            try_invoker,
         }
     }
 
@@ -589,34 +592,64 @@ impl<'a, R> CallBuilder<'a, R> {
         self
     }
 
+    fn run_auth_setup(
+        env: &Env,
+        contract: &Address,
+        fn_name: &str,
+        args: Vec<Val>,
+        signers: &[&dyn Signer],
+        authorizers: &[Address],
+    ) {
+        if !signers.is_empty() && !authorizers.is_empty() {
+            panic!("cannot mix .sign() and .authorize() on the same CallBuilder");
+        }
+
+        if !signers.is_empty() {
+            setup_real_auth(env, contract, fn_name, args, signers);
+        } else {
+            setup_mock_auth(env, contract, fn_name, args, authorizers);
+        }
+    }
+
     /// Execute the call with the configured authorizations.
     ///
     /// If signers are configured, uses real cryptographic auth.
     /// If authorizers are configured, uses mock auth.
     /// Panics if both are configured.
     pub fn invoke(self) -> R {
-        if !self.signers.is_empty() && !self.authorizers.is_empty() {
-            panic!("cannot mix .sign() and .authorize() on the same CallBuilder");
-        }
-
-        if !self.signers.is_empty() {
-            setup_real_auth(
-                self.env,
-                self.contract,
-                self.fn_name,
-                self.args,
-                &self.signers,
-            );
-        } else {
-            setup_mock_auth(
-                self.env,
-                self.contract,
-                self.fn_name,
-                self.args,
-                &self.authorizers,
-            );
-        }
+        Self::run_auth_setup(
+            self.env,
+            self.contract,
+            self.fn_name,
+            self.args,
+            &self.signers,
+            &self.authorizers,
+        );
         (self.invoker)()
+    }
+
+    /// Execute the call with the configured authorizations, returning a
+    /// `Result` instead of panicking on contract errors.
+    ///
+    /// Uses the same authorization setup as `invoke()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no try invoker was provided (i.e. the `CallBuilder` was not
+    /// constructed by a generated `AuthClient` method).
+    pub fn try_invoke(self) -> TryR {
+        Self::run_auth_setup(
+            self.env,
+            self.contract,
+            self.fn_name,
+            self.args,
+            &self.signers,
+            &self.authorizers,
+        );
+        let try_invoker = self
+            .try_invoker
+            .expect("try_invoker not set; use try_invoke through AuthClient methods");
+        (try_invoker)()
     }
 }
 

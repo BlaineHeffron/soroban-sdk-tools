@@ -11,6 +11,7 @@
 
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, contracttype, vec, Address, Env, IntoVal, Vec};
+use soroban_sdk_tools::Signer;
 
 // Import the token contract WASM using contractimport! - this generates AuthClient
 mod token {
@@ -646,4 +647,85 @@ fn test_setup_mock_auth_wrong_authorizer_fails() {
 
     // This should fail because user != wrong_user
     client.action(&user);
+}
+
+// =============================================================================
+// try_invoke Tests
+// =============================================================================
+
+#[test]
+fn test_try_invoke_success() {
+    let env = Env::default();
+    let contract_id = env.register(token::WASM, ());
+    let client = token::Client::new(&env, &contract_id);
+    let auth_client = token::AuthClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.mint(&alice, &1000);
+
+    // try_invoke on a successful transfer
+    let result = auth_client
+        .transfer(&alice, &bob, &300)
+        .authorize(&alice)
+        .try_invoke();
+
+    assert!(result.is_ok());
+    assert_eq!(client.balance(&alice), 700);
+    assert_eq!(client.balance(&bob), 300);
+}
+
+#[test]
+fn test_try_invoke_error() {
+    let env = Env::default();
+    let contract_id = env.register(token::WASM, ());
+    let client = token::Client::new(&env, &contract_id);
+    let auth_client = token::AuthClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin);
+    client.mint(&alice, &100);
+
+    // try_invoke on a transfer that exceeds balance — returns Err instead of panicking
+    let result = auth_client
+        .transfer(&alice, &bob, &500)
+        .authorize(&alice)
+        .try_invoke();
+
+    assert!(result.is_err());
+    // Balance unchanged
+    assert_eq!(client.balance(&alice), 100);
+}
+
+#[test]
+fn test_try_invoke_with_real_auth() {
+    let env = Env::default();
+    let contract_id = env.register(token::WASM, ());
+    let client = token::Client::new(&env, &contract_id);
+    let auth_client = token::AuthClient::new(&env, &contract_id);
+
+    let alice = soroban_sdk_tools::Keypair::random(&env);
+    let bob = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&Address::generate(&env));
+    client.mint(alice.address(), &1000);
+
+    // try_invoke with real auth on a successful transfer
+    let result = auth_client
+        .transfer(alice.address(), &bob, &300)
+        .sign(&alice)
+        .try_invoke();
+
+    assert!(result.is_ok());
+    assert_eq!(client.balance(alice.address()), 700);
+    assert_eq!(client.balance(&bob), 300);
 }

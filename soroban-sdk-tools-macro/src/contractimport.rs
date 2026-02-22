@@ -117,6 +117,40 @@ fn unwrap_result_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
     }
 }
 
+/// Generate the try return type for a function, matching soroban-sdk's try_ method convention.
+///
+/// The return type follows the pattern:
+/// ```text
+/// Result<
+///     Result<T, <T as TryFromVal<Env, Val>>::Error>,
+///     Result<E, soroban_sdk::InvokeError>
+/// >
+/// ```
+fn generate_try_return_type(outputs: &[ScSpecTypeDef]) -> proc_macro2::TokenStream {
+    let (ok_ty, err_ty) = if outputs.is_empty() {
+        (quote! { () }, quote! { soroban_sdk::Error })
+    } else {
+        match &outputs[0] {
+            ScSpecTypeDef::Result(inner) => {
+                let ok = generate_type_ident(&inner.ok_type);
+                let err = generate_type_ident(&inner.error_type);
+                (quote! { #ok }, quote! { #err })
+            }
+            other => {
+                let ty = generate_type_ident(other);
+                (quote! { #ty }, quote! { soroban_sdk::Error })
+            }
+        }
+    };
+
+    quote! {
+        Result<
+            Result<#ok_ty, <#ok_ty as soroban_sdk::TryFromVal<soroban_sdk::Env, soroban_sdk::Val>>::Error>,
+            Result<#err_ty, soroban_sdk::InvokeError>
+        >
+    }
+}
+
 /// Generate the expression to pass an argument to mock_auth.
 ///
 /// This handles the different ownership semantics for various types:
@@ -216,6 +250,7 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
 /// Generate a wrapper method for AuthClient that returns a CallBuilder.
 fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream {
     let fn_name = format_ident!("{}", func.name);
+    let try_fn_name = format_ident!("try_{}", func.name);
     let fn_name_str = &func.name;
     let doc = &func.doc;
 
@@ -241,11 +276,29 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
         })
         .collect();
 
+    // Generate a second set of clones for the try_invoker closure
+    let try_arg_clones: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| {
+            let name = format_ident!("{}", input.name);
+            let clone_name = format_ident!("{}_try_clone", input.name);
+            generate_clone_stmt(&name, &clone_name, &input.type_def)
+        })
+        .collect();
+
     // Generate the cloned argument names for the closure call
     let clone_names: Vec<_> = func
         .inputs
         .iter()
         .map(|input| format_ident!("{}_clone", input.name))
+        .collect();
+
+    // Generate the try-cloned argument names for the try_invoker closure
+    let try_clone_names: Vec<_> = func
+        .inputs
+        .iter()
+        .map(|input| format_ident!("{}_try_clone", input.name))
         .collect();
 
     // Generate args tuple for mock auth
@@ -281,9 +334,12 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
         quote! { (#(#types),*) }
     };
 
+    // Generate try return type matching soroban-sdk's try_ method convention
+    let try_return_ty = generate_try_return_type(&func.outputs);
+
     quote! {
         #[doc = #doc]
-        pub fn #fn_name<'b>(&'b self, #(#params),*) -> soroban_sdk_tools::auth::CallBuilder<'b, #return_ty>
+        pub fn #fn_name<'b>(&'b self, #(#params),*) -> soroban_sdk_tools::auth::CallBuilder<'b, #return_ty, #try_return_ty>
         where
             'a: 'b,
         {
@@ -292,13 +348,22 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
             // Convert args to Vec<Val> for mock auth
             let args: soroban_sdk::Vec<soroban_sdk::Val> = #args_tuple_expr.into_val(&self.inner.env);
 
-            // Clone args for the closure (closure needs owned values)
+            // Clone args for the invoker closure
             #(#arg_clones)*
+
+            // Clone args for the try_invoker closure
+            #(#try_arg_clones)*
 
             // Create the invoker closure
             let inner = &self.inner;
             let invoker = __alloc::boxed::Box::new(move || {
                 inner.#fn_name(#(&#clone_names),*)
+            });
+
+            // Create the try_invoker closure
+            let inner = &self.inner;
+            let try_invoker = __alloc::boxed::Box::new(move || {
+                inner.#try_fn_name(#(&#try_clone_names),*)
             });
 
             soroban_sdk_tools::auth::CallBuilder::new(
@@ -307,6 +372,7 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
                 #fn_name_str,
                 args,
                 invoker,
+                Some(try_invoker),
             )
         }
     }
@@ -335,11 +401,6 @@ fn generate_clone_stmt(
         _ => quote! { let #clone_name = #name.clone(); },
     }
 }
-
-// Note: try_ methods are not generated for AuthClient.
-// Users can access them via `client.inner().try_method_name()` if needed.
-// This avoids complex generic signature generation that depends on the specific
-// error types defined in the contract.
 
 // -----------------------------------------------------------------------------
 // Error Spec Generation
