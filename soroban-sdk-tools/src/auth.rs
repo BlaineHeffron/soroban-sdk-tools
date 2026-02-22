@@ -42,19 +42,17 @@
 //! }
 //! ```
 
-#[cfg(any(test, feature = "testutils"))]
 extern crate alloc;
 
-#[cfg(any(test, feature = "testutils"))]
+extern crate std;
+
 use alloc::{boxed::Box, rc::Rc, vec::Vec as StdVec};
 
-#[cfg(any(test, feature = "testutils"))]
 use soroban_sdk::{
     testutils::{MockAuth, MockAuthInvoke},
     Address, Env, IntoVal, TryFromVal, Val, Vec,
 };
 
-#[cfg(any(test, feature = "testutils"))]
 use soroban_sdk::xdr::{
     self, HashIdPreimage, HashIdPreimageSorobanAuthorization, InvokeContractArgs, LedgerKeyAccount,
     Limited, Limits, ScAddress, ScSymbol, ScVal, SorobanAddressCredentials,
@@ -67,13 +65,12 @@ use soroban_sdk::xdr::{
 // ---------------------------------------------------------------------------
 
 /// A signer that can produce real cryptographic signatures for Soroban auth.
-#[cfg(any(test, feature = "testutils"))]
 pub trait Signer {
     /// The Soroban address controlled by this signer.
     fn address(&self) -> &Address;
     /// Sign an auth payload hash (32 bytes), returning the ScVal for
     /// `SorobanAddressCredentials.signature`.
-    fn sign_payload(&self, payload: &[u8]) -> ScVal;
+    fn sign_payload(&self, env: &Env, payload: &[u8]) -> ScVal;
 }
 
 // ===========================================================================
@@ -83,13 +80,11 @@ pub trait Signer {
 /// An Ed25519 keypair that registers as a native Stellar account.
 ///
 /// The host's built-in `check_account_authentication` verifies the signature.
-#[cfg(any(test, feature = "testutils"))]
 pub struct Keypair {
     signing_key: ed25519_dalek::SigningKey,
     address: Address,
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Keypair {
     /// Generate a random Ed25519 keypair and register the account on the ledger.
     pub fn random(env: &Env) -> Self {
@@ -154,13 +149,12 @@ impl Keypair {
     }
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Signer for Keypair {
     fn address(&self) -> &Address {
         &self.address
     }
 
-    fn sign_payload(&self, payload: &[u8]) -> ScVal {
+    fn sign_payload(&self, _env: &Env, payload: &[u8]) -> ScVal {
         use ed25519_dalek::Signer as DalekSigner;
         let signature = self.signing_key.sign(payload);
         let pk_bytes = self.signing_key.verifying_key().to_bytes();
@@ -194,7 +188,6 @@ impl Signer for Keypair {
 // Secp256k1 custom account contract
 // ===========================================================================
 
-#[cfg(any(test, feature = "testutils"))]
 mod secp256k1_account {
     use soroban_sdk::{auth, contract, contractimpl, contracttype, BytesN, Env, Vec};
 
@@ -241,13 +234,11 @@ mod secp256k1_account {
 }
 
 /// A secp256k1 keypair that registers as a custom account contract.
-#[cfg(any(test, feature = "testutils"))]
 pub struct Secp256k1Keypair {
     signing_key: k256::ecdsa::SigningKey,
     address: Address,
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Secp256k1Keypair {
     /// Generate a random secp256k1 keypair and register the custom account contract.
     pub fn random(env: &Env) -> Self {
@@ -289,13 +280,12 @@ impl Secp256k1Keypair {
     }
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Signer for Secp256k1Keypair {
     fn address(&self) -> &Address {
         &self.address
     }
 
-    fn sign_payload(&self, payload: &[u8]) -> ScVal {
+    fn sign_payload(&self, _env: &Env, payload: &[u8]) -> ScVal {
         use k256::ecdsa::{RecoveryId, Signature};
         let (signature, recovery_id): (Signature, RecoveryId) =
             <k256::ecdsa::SigningKey as k256::ecdsa::signature::hazmat::PrehashSigner<_>>::sign_prehash(&self.signing_key, payload).unwrap();
@@ -314,7 +304,6 @@ impl Signer for Secp256k1Keypair {
 // Secp256r1 (P-256) custom account contract
 // ===========================================================================
 
-#[cfg(any(test, feature = "testutils"))]
 mod secp256r1_account {
     use soroban_sdk::{auth, contract, contractimpl, contracttype, BytesN, Env, Vec};
 
@@ -346,13 +335,11 @@ mod secp256r1_account {
 }
 
 /// A secp256r1 (NIST P-256) keypair that registers as a custom account contract.
-#[cfg(any(test, feature = "testutils"))]
 pub struct Secp256r1Keypair {
     signing_key: p256::ecdsa::SigningKey,
     address: Address,
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Secp256r1Keypair {
     /// Generate a random P-256 keypair and register the custom account contract.
     pub fn random(env: &Env) -> Self {
@@ -394,13 +381,12 @@ impl Secp256r1Keypair {
     }
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl Signer for Secp256r1Keypair {
     fn address(&self) -> &Address {
         &self.address
     }
 
-    fn sign_payload(&self, payload: &[u8]) -> ScVal {
+    fn sign_payload(&self, _env: &Env, payload: &[u8]) -> ScVal {
         use p256::ecdsa::Signature;
         let signature: Signature =
             <p256::ecdsa::SigningKey as p256::ecdsa::signature::hazmat::PrehashSigner<_>>::sign_prehash(&self.signing_key, payload).unwrap();
@@ -429,7 +415,6 @@ impl Signer for Secp256r1Keypair {
 /// * `fn_name` - The function name being invoked
 /// * `args` - The function arguments
 /// * `signers` - The signers that will authorize this invocation
-#[cfg(any(test, feature = "testutils"))]
 pub fn setup_real_auth<A>(
     env: &Env,
     contract: &Address,
@@ -469,9 +454,17 @@ pub fn setup_real_auth<A>(
 
     let mut entries = StdVec::new();
 
-    for (i, signer) in signers.iter().enumerate() {
-        // Use a simple incrementing nonce (i64)
-        let nonce: i64 = (i as i64) + 1;
+    for (_i, signer) in signers.iter().enumerate() {
+        // Use a thread-local counter for globally unique nonces across calls
+        use core::cell::Cell;
+        std::thread_local! {
+            static NONCE_COUNTER: Cell<i64> = const { Cell::new(0) };
+        }
+        let nonce: i64 = NONCE_COUNTER.with(|c| {
+            let n = c.get() + 1;
+            c.set(n);
+            n
+        });
 
         let preimage = HashIdPreimage::SorobanAuthorization(HashIdPreimageSorobanAuthorization {
             network_id: xdr::Hash(network_id_bytes),
@@ -491,7 +484,7 @@ pub fn setup_real_auth<A>(
             env.crypto().sha256(&bytes).to_array()
         };
 
-        let signature = signer.sign_payload(&payload_hash);
+        let signature = signer.sign_payload(env, &payload_hash);
 
         let sc_address = ScAddress::from(signer.address());
 
@@ -528,7 +521,6 @@ pub fn setup_real_auth<A>(
 /// let kp = Keypair::random(&env);
 /// client.transfer(kp.address(), &bob, &100).sign(&kp).invoke();
 /// ```
-#[cfg(any(test, feature = "testutils"))]
 pub struct CallBuilder<'a, R> {
     env: &'a Env,
     contract: &'a Address,
@@ -539,7 +531,6 @@ pub struct CallBuilder<'a, R> {
     invoker: Box<dyn FnOnce() -> R + 'a>,
 }
 
-#[cfg(any(test, feature = "testutils"))]
 impl<'a, R> CallBuilder<'a, R> {
     /// Create a new CallBuilder.
     ///
@@ -658,7 +649,6 @@ impl<'a, R> CallBuilder<'a, R> {
 ///     &[from.clone()],
 /// );
 /// ```
-#[cfg(any(test, feature = "testutils"))]
 pub fn setup_mock_auth<A>(
     env: &Env,
     contract: &Address,

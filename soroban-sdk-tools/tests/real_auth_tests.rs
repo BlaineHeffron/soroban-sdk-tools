@@ -284,6 +284,14 @@ fn test_setup_real_auth_standalone() {
 }
 
 #[test]
+fn test_sign_payload_with_env_param() {
+    let env = Env::default();
+    let alice = Keypair::random(&env);
+    let sig = alice.sign_payload(&env, &[0xAB; 32]);
+    assert!(matches!(sig, soroban_sdk::xdr::ScVal::Vec(Some(_))));
+}
+
+#[test]
 fn test_keypair_deterministic_from_seed() {
     let env = Env::default();
     let seed = [42u8; 32];

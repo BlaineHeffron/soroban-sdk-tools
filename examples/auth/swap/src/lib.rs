@@ -387,8 +387,10 @@ mod test {
         let initiator = Address::generate(&env);
         let counterparty = Address::generate(&env);
 
+        let auth_client = swap::AuthClient::new(&env, &contract_id);
+
         // Step 1: Initiator creates escrow using AuthClient
-        let swap_id = swap::AuthClient::new(&env, &contract_id)
+        let swap_id = auth_client
             .create_escrow(&initiator, &counterparty, &100, &200, &1000)
             .authorize(&initiator)
             .invoke();

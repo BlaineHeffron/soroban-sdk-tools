@@ -149,11 +149,14 @@ fn generate_arg_expr(
 
 /// Generate the AuthClient struct and implementation.
 fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream {
-    // Generate wrapper methods for each function
-    let methods: Vec<_> = functions.iter().map(generate_auth_client_method).collect();
+    // Filter out special functions that aren't regular client methods
+    let methods = functions
+        .iter()
+        .filter(|f| !f.name.starts_with("__"))
+        .map(generate_auth_client_method);
 
     quote! {
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(test)]
         extern crate alloc as __alloc;
 
         /// Auth-testing wrapper client for simplified authorization testing.
@@ -176,12 +179,12 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
         ///     .authorize(&signer2)
         ///     .invoke();
         /// ```
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(test)]
         pub struct AuthClient<'a> {
             inner: Client<'a>,
         }
 
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(test)]
         impl<'a> AuthClient<'a> {
             /// Create a new AuthClient wrapping a contract at the given address.
             pub fn new(env: &'a soroban_sdk::Env, address: &'a soroban_sdk::Address) -> Self {
@@ -549,12 +552,9 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         };
 
     // Generate spec consts, ContractErrorSpec, and SequentialError impls for each error enum
-    let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
-    let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-    let seq_impls: Vec<_> = error_enums
-        .iter()
-        .map(generate_sequential_error_impl)
-        .collect();
+    let spec_consts = error_enums.iter().map(generate_spec_const);
+    let spec_impls = error_enums.iter().map(generate_error_spec_impl);
+    let seq_impls = error_enums.iter().map(generate_sequential_error_impl);
 
     // Generate AuthClient for simplified auth testing
     let auth_client = generate_auth_client(&functions);
