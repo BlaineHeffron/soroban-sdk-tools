@@ -621,9 +621,7 @@ fn test_call_builder_invoke_without_authorize_fails() {
     // Now invoke transfer via AuthClient WITHOUT any authorize().
     // This should fail because invoke() with no authorizers skips mock auth
     // setup, and we cleared prior mock_all_auths.
-    auth_client
-        .transfer(&alice, &bob, &100)
-        .invoke();
+    auth_client.transfer(&alice, &bob, &100).invoke();
 }
 
 #[test]

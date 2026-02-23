@@ -467,7 +467,7 @@ pub fn setup_real_auth<A>(
 
     let mut entries = StdVec::new();
 
-    for (_i, signer) in signers.iter().enumerate() {
+    for signer in signers.iter() {
         let nonce: i64 = NONCE_COUNTER.with(|c| {
             let n = c.get() + 1;
             c.set(n);

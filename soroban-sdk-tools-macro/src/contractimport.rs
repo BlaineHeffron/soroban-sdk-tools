@@ -60,11 +60,6 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
         .collect()
 }
 
-/// Generate `ErrorSpecEntry` tokens for a list of variants.
-///
-/// Uses 1-based sequential codes (matching variant position) rather than
-/// native error codes, consistent with `#[scerr]` basic mode.
-
 // -----------------------------------------------------------------------------
 // Function Extraction (for AuthClient generation)
 // -----------------------------------------------------------------------------
