@@ -567,7 +567,11 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// Add an address that will authorize this call using mock auth.
     ///
     /// Can be chained multiple times for multi-party authorization.
-    /// Cannot be mixed with `.sign()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics at `invoke()` / `try_invoke()` time if `.sign()` has also been
+    /// called on this builder — mock and real auth cannot be mixed.
     #[must_use]
     pub fn authorize(mut self, addr: &Address) -> Self {
         self.authorizers.push(addr.clone());
@@ -575,7 +579,11 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     }
 
     /// Add multiple addresses that will authorize this call using mock auth.
-    /// Cannot be mixed with `.sign()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics at `invoke()` / `try_invoke()` time if `.sign()` has also been
+    /// called on this builder — mock and real auth cannot be mixed.
     #[must_use]
     pub fn authorize_all(mut self, addrs: &[Address]) -> Self {
         self.authorizers.extend(addrs.iter().cloned());
@@ -585,7 +593,11 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// Add a signer that will produce a real cryptographic signature.
     ///
     /// Can be chained multiple times for multi-party authorization.
-    /// Cannot be mixed with `.authorize()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics at `invoke()` / `try_invoke()` time if `.authorize()` has also
+    /// been called on this builder — mock and real auth cannot be mixed.
     #[must_use]
     pub fn sign(mut self, signer: &'a dyn Signer) -> Self {
         self.signers.push(signer);
@@ -593,7 +605,11 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     }
 
     /// Add multiple signers for real cryptographic authorization.
-    /// Cannot be mixed with `.authorize()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics at `invoke()` / `try_invoke()` time if `.authorize()` has also
+    /// been called on this builder — mock and real auth cannot be mixed.
     #[must_use]
     pub fn sign_all(mut self, signers: &[&'a dyn Signer]) -> Self {
         self.signers.extend_from_slice(signers);
