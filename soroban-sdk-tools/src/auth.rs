@@ -289,6 +289,14 @@ impl Signer for Secp256k1Keypair {
         use k256::ecdsa::{RecoveryId, Signature};
         let (signature, recovery_id): (Signature, RecoveryId) =
             <k256::ecdsa::SigningKey as k256::ecdsa::signature::hazmat::PrehashSigner<_>>::sign_prehash(&self.signing_key, payload).unwrap();
+        // Normalize to low-S (required by Soroban host's ecdsa_signature_from_bytes).
+        // When S is negated the recovery ID must be flipped.
+        let (signature, recovery_id) = if let Some(normalized) = signature.normalize_s() {
+            let flipped = RecoveryId::from_byte(recovery_id.to_byte() ^ 1).unwrap();
+            (normalized, flipped)
+        } else {
+            (signature, recovery_id)
+        };
         let sig_bytes: [u8; 64] = signature.to_bytes().into();
         let rid: u8 = recovery_id.to_byte();
 
