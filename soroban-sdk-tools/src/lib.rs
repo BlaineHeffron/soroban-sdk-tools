@@ -19,7 +19,7 @@ pub mod key;
 pub mod storage;
 
 // Auth module is always exported but its contents are gated by testutils
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "testutils")]
 pub mod auth;
 
 // Re-export commonly used types
@@ -29,7 +29,7 @@ pub use storage::{
     InstanceItem, InstanceMap, PersistentItem, PersistentMap, TemporaryItem, TemporaryMap,
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "testutils")]
 pub use auth::{
     setup_mock_auth, setup_real_auth, Keypair, Secp256k1Keypair, Secp256r1Keypair, Signer,
 };

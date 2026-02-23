@@ -219,142 +219,98 @@ mod test {
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{vec, Address, Env};
 
-    // Import this contract's WASM to get AuthClient
     mod vault {
         soroban_sdk_tools::contractimport!(
             file = "../../../target/stellar/soroban_auth_vault.wasm"
         );
     }
 
-    /// Demonstrates multi-signer authorization with setup_mock_auth.
+    /// Helper: register contract and initialize a 2-of-3 vault.
+    /// Returns (contract_id, admin, signer1, signer2, signer3).
+    fn setup(env: &Env) -> (Address, Address, Address, Address, Address) {
+        let contract_id = env.register(vault::WASM, ());
+        let admin = Address::generate(env);
+        let signer1 = Address::generate(env);
+        let signer2 = Address::generate(env);
+        let signer3 = Address::generate(env);
+
+        let signers = vec![env, signer1.clone(), signer2.clone(), signer3.clone()];
+
+        env.mock_all_auths();
+        vault::Client::new(env, &contract_id).initialize(&admin, &signers, &2);
+
+        (contract_id, admin, signer1, signer2, signer3)
+    }
+
+    /// Demonstrates multi-signer withdrawal using AuthClient with authorize_all.
     ///
     /// This is a 2-of-3 multisig vault where withdrawals require
     /// authorization from at least 2 signers.
     #[test]
-    fn test_multi_signer_withdrawal_with_auth() {
-        let env = Env::default();
-        let contract_id = env.register(vault::WASM, ());
-        let client = vault::Client::new(&env, &contract_id);
+    fn test_multi_signer_withdrawal() {
+        let env = &Env::default();
+        let (contract_id, admin, signer1, signer2, _) = &setup(env);
+        let client = vault::AuthClient::new(env, contract_id);
+        let recipient = &Address::generate(env);
 
-        let admin = Address::generate(&env);
-        let signer1 = Address::generate(&env);
-        let signer2 = Address::generate(&env);
-        let signer3 = Address::generate(&env);
-        let recipient = Address::generate(&env);
+        client.deposit(admin, &1000).authorize(admin).invoke();
+        assert_eq!(client.balance().invoke(), 1000);
 
-        let signers = vec![&env, signer1.clone(), signer2.clone(), signer3.clone()];
-
-        // Setup with mock_all_auths
-        env.mock_all_auths();
-        client.initialize(&admin, &signers, &2);
-        client.deposit(&admin, &1000);
-        assert_eq!(client.balance(), 1000);
-
-        // Multi-signer withdrawal using setup_mock_auth
-        // This sets up auth for BOTH signer1 AND signer2
-        let authorizers = vec![&env, signer1.clone(), signer2.clone()];
-        soroban_sdk_tools::auth::setup_mock_auth(
-            &env,
-            &contract_id,
-            "withdraw",
-            (authorizers.clone(), recipient.clone(), 500_i128),
-            &[signer1.clone(), signer2.clone()], // Both signers authorize
-        );
-
-        client.withdraw(&authorizers, &recipient, &500);
-        assert_eq!(client.balance(), 500);
+        let authorizers = vec![env, signer1.clone(), signer2.clone()];
+        client
+            .withdraw(&authorizers, recipient, &500)
+            .authorize_all(&[signer1, signer2])
+            .invoke();
+        assert_eq!(client.balance().invoke(), 500);
     }
 
-    /// Demonstrates single-signer operations with AuthClient.
+    /// Demonstrates single-signer deposit using AuthClient.
     #[test]
-    fn test_deposit_with_auth_client() {
-        let env = Env::default();
-        let contract_id = env.register(vault::WASM, ());
-        let client = vault::Client::new(&env, &contract_id);
+    fn test_deposit() {
+        let env = &Env::default();
+        let (contract_id, _, _, _, _) = &setup(env);
+        let client = vault::AuthClient::new(env, contract_id);
+        let depositor = &Address::generate(env);
 
-        let admin = Address::generate(&env);
-        let signer1 = Address::generate(&env);
-        let signer2 = Address::generate(&env);
-        let depositor = Address::generate(&env);
-
-        let signers = vec![&env, signer1.clone(), signer2.clone()];
-
-        env.mock_all_auths();
-        client.initialize(&admin, &signers, &2);
-
-        // Single-user deposit using AuthClient
-        vault::AuthClient::new(&env, &contract_id)
-            .deposit(&depositor, &500)
-            .authorize(&depositor)
+        client
+            .deposit(depositor, &500)
+            .authorize(depositor)
             .invoke();
 
-        assert_eq!(client.balance(), 500);
+        assert_eq!(client.balance().invoke(), 500);
     }
 
-    /// Demonstrates admin operations with AuthClient.
+    /// Demonstrates admin operations (add signer, set threshold) using AuthClient.
     #[test]
-    fn test_admin_operations_with_auth_client() {
-        let env = Env::default();
-        let contract_id = env.register(vault::WASM, ());
-        let client = vault::Client::new(&env, &contract_id);
+    fn test_admin_operations() {
+        let env = &Env::default();
+        let (contract_id, admin, _, _, _) = &setup(env);
+        let client = vault::AuthClient::new(env, contract_id);
+        let new_signer = &Address::generate(env);
 
-        let admin = Address::generate(&env);
-        let signer1 = Address::generate(&env);
-        let signer2 = Address::generate(&env);
-        let new_signer = Address::generate(&env);
+        client.add_signer(new_signer).authorize(admin).invoke();
+        assert_eq!(client.get_signers().invoke().len(), 4);
 
-        let signers = vec![&env, signer1.clone(), signer2.clone()];
-
-        env.mock_all_auths();
-        client.initialize(&admin, &signers, &2);
-
-        // Admin adds a new signer using AuthClient
-        vault::AuthClient::new(&env, &contract_id)
-            .add_signer(&new_signer)
-            .authorize(&admin)
-            .invoke();
-
-        assert_eq!(client.get_signers().len(), 3);
-
-        // Admin changes threshold using AuthClient
-        vault::AuthClient::new(&env, &contract_id)
-            .set_threshold(&3)
-            .authorize(&admin)
-            .invoke();
-
-        assert_eq!(client.get_threshold(), 3);
+        client.set_threshold(&3).authorize(admin).invoke();
+        assert_eq!(client.get_threshold().invoke(), 3);
     }
 
     /// Tests that withdrawal fails without enough signers.
     #[test]
     #[should_panic]
     fn test_insufficient_signers() {
-        let env = Env::default();
-        let contract_id = env.register(vault::WASM, ());
-        let client = vault::Client::new(&env, &contract_id);
+        let env = &Env::default();
+        let (contract_id, admin, signer1, _, _) = &setup(env);
+        let client = vault::AuthClient::new(env, contract_id);
+        let recipient = &Address::generate(env);
 
-        let admin = Address::generate(&env);
-        let signer1 = Address::generate(&env);
-        let signer2 = Address::generate(&env);
-        let signer3 = Address::generate(&env);
-        let recipient = Address::generate(&env);
-
-        let signers = vec![&env, signer1.clone(), signer2.clone(), signer3.clone()];
-
-        env.mock_all_auths();
-        client.initialize(&admin, &signers, &2); // 2-of-3 required
-        client.deposit(&admin, &1000);
+        client.deposit(admin, &1000).authorize(admin).invoke();
 
         // Try with only 1 signer (needs 2)
-        let authorizers = vec![&env, signer1.clone()];
-        soroban_sdk_tools::auth::setup_mock_auth(
-            &env,
-            &contract_id,
-            "withdraw",
-            (authorizers.clone(), recipient.clone(), 500_i128),
-            core::slice::from_ref(&signer1),
-        );
-
-        client.withdraw(&authorizers, &recipient, &500);
+        let authorizers = vec![env, signer1.clone()];
+        client
+            .withdraw(&authorizers, recipient, &500)
+            .authorize(signer1)
+            .invoke();
     }
 }
