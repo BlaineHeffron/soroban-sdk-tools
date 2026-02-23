@@ -423,6 +423,11 @@ impl Signer for Secp256r1Keypair {
 /// * `fn_name` - The function name being invoked
 /// * `args` - The function arguments
 /// * `signers` - The signers that will authorize this invocation
+use core::cell::Cell;
+std::thread_local! {
+    static NONCE_COUNTER: Cell<i64> = const { Cell::new(0) };
+}
+
 pub fn setup_real_auth<A>(
     env: &Env,
     contract: &Address,
@@ -463,11 +468,6 @@ pub fn setup_real_auth<A>(
     let mut entries = StdVec::new();
 
     for (_i, signer) in signers.iter().enumerate() {
-        // Use a thread-local counter for globally unique nonces across calls
-        use core::cell::Cell;
-        std::thread_local! {
-            static NONCE_COUNTER: Cell<i64> = const { Cell::new(0) };
-        }
         let nonce: i64 = NONCE_COUNTER.with(|c| {
             let n = c.get() + 1;
             c.set(n);
