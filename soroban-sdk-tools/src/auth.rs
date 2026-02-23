@@ -532,7 +532,7 @@ pub fn setup_real_auth<A>(
 pub struct CallBuilder<'a, R, TryR = ()> {
     env: &'a Env,
     contract: &'a Address,
-    fn_name: &'static str,
+    fn_name: &'a str,
     args: Vec<Val>,
     authorizers: StdVec<Address>,
     signers: StdVec<&'a dyn Signer>,
@@ -547,7 +547,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     pub fn new(
         env: &'a Env,
         contract: &'a Address,
-        fn_name: &'static str,
+        fn_name: &'a str,
         args: Vec<Val>,
         invoker: Box<dyn FnOnce() -> R + 'a>,
         try_invoker: Option<Box<dyn FnOnce() -> TryR + 'a>>,
