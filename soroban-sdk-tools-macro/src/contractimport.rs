@@ -255,54 +255,41 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
     let doc = &func.doc;
 
     // Generate parameter list with explicit lifetime
-    let params: Vec<_> = func
-        .inputs
-        .iter()
-        .map(|input| {
-            let name = format_ident!("{}", input.name);
-            let ty = generate_type_ident(&input.type_def);
-            quote! { #name: &'b #ty }
-        })
-        .collect();
+    let params = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let ty = generate_type_ident(&input.type_def);
+        quote! { #name: &'b #ty }
+    });
 
     // Generate argument names for the inner call (cloned for the closure)
-    let arg_clones: Vec<_> = func
-        .inputs
-        .iter()
-        .map(|input| {
-            let name = format_ident!("{}", input.name);
-            let clone_name = format_ident!("{}_clone", input.name);
-            generate_clone_stmt(&name, &clone_name, &input.type_def)
-        })
-        .collect();
+    let arg_clones = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let clone_name = format_ident!("{}_clone", input.name);
+        generate_clone_stmt(&name, &clone_name, &input.type_def)
+    });
 
     // Generate a second set of clones for the try_invoker closure
-    let try_arg_clones: Vec<_> = func
-        .inputs
-        .iter()
-        .map(|input| {
-            let name = format_ident!("{}", input.name);
-            let clone_name = format_ident!("{}_try_clone", input.name);
-            generate_clone_stmt(&name, &clone_name, &input.type_def)
-        })
-        .collect();
+    let try_arg_clones = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let clone_name = format_ident!("{}_try_clone", input.name);
+        generate_clone_stmt(&name, &clone_name, &input.type_def)
+    });
 
     // Generate the cloned argument names for the closure call
-    let clone_names: Vec<_> = func
+    let clone_names = func
         .inputs
         .iter()
-        .map(|input| format_ident!("{}_clone", input.name))
-        .collect();
+        .map(|input| format_ident!("{}_clone", input.name));
 
     // Generate the try-cloned argument names for the try_invoker closure
-    let try_clone_names: Vec<_> = func
+    let try_clone_names = func
         .inputs
         .iter()
-        .map(|input| format_ident!("{}_try_clone", input.name))
-        .collect();
+        .map(|input| format_ident!("{}_try_clone", input.name));
 
     // Generate args tuple for mock auth
     // Note: Single-element tuples need a trailing comma: (a,) not (a)
+    // Collected because we need .len() and indexed access for the tuple expression
     let args_tuple: Vec<_> = func
         .inputs
         .iter()
@@ -330,7 +317,7 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
     } else if func.outputs.len() == 1 {
         unwrap_result_type(&func.outputs[0])
     } else {
-        let types: Vec<_> = func.outputs.iter().map(unwrap_result_type).collect();
+        let types = func.outputs.iter().map(unwrap_result_type);
         quote! { (#(#types),*) }
     };
 
@@ -405,21 +392,19 @@ fn generate_clone_stmt(
 // -----------------------------------------------------------------------------
 // Error Spec Generation
 // -----------------------------------------------------------------------------
-fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let code = (idx + 1) as u32;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code, name: #name, description: #doc,
-                }
+fn generate_spec_entries(
+    variants: &[ErrorVariantInfo],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + '_ {
+    variants.iter().enumerate().map(|(idx, v)| {
+        let code = (idx + 1) as u32;
+        let name = &v.name;
+        let doc = &v.doc;
+        quote! {
+            soroban_sdk_tools::error::ErrorSpecEntry {
+                code: #code, name: #name, description: #doc,
             }
-        })
-        .collect()
+        }
+    })
 }
 
 /// Generate `SpecNode` leaf tokens for a list of variants.
@@ -427,22 +412,20 @@ fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::Toke
 /// Uses 1-based sequential codes (matching variant position) rather than
 /// native error codes, so that the XDR builder produces correct flattened
 /// codes when this type is wrapped by an outer `#[scerr]` enum.
-fn generate_tree_nodes(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let code = (idx + 1) as u32;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::SpecNode {
-                    code: #code, name: #name, description: #doc,
-                    children: &[],
-                }
+fn generate_tree_nodes(
+    variants: &[ErrorVariantInfo],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + '_ {
+    variants.iter().enumerate().map(|(idx, v)| {
+        let code = (idx + 1) as u32;
+        let name = &v.name;
+        let doc = &v.doc;
+        quote! {
+            soroban_sdk_tools::error::SpecNode {
+                code: #code, name: #name, description: #doc,
+                children: &[],
             }
-        })
-        .collect()
+        }
+    })
 }
 
 /// Generate the `__SCERR_SPEC_{TypeName}` const for an error enum.
@@ -489,27 +472,17 @@ fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
 fn generate_sequential_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
 
-    let to_seq_arms: Vec<_> = info
-        .variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let variant_ident = format_ident!("{}", v.name);
-            let idx = idx as u32;
-            quote! { #type_name::#variant_ident => #idx }
-        })
-        .collect();
+    let to_seq_arms = info.variants.iter().enumerate().map(|(idx, v)| {
+        let variant_ident = format_ident!("{}", v.name);
+        let idx = idx as u32;
+        quote! { #type_name::#variant_ident => #idx }
+    });
 
-    let from_seq_arms: Vec<_> = info
-        .variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let variant_ident = format_ident!("{}", v.name);
-            let idx = idx as u32;
-            quote! { #idx => Some(#type_name::#variant_ident) }
-        })
-        .collect();
+    let from_seq_arms = info.variants.iter().enumerate().map(|(idx, v)| {
+        let variant_ident = format_ident!("{}", v.name);
+        let idx = idx as u32;
+        quote! { #idx => Some(#type_name::#variant_ident) }
+    });
 
     quote! {
         impl soroban_sdk_tools::error::SequentialError for #type_name {
