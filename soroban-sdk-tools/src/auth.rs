@@ -456,7 +456,7 @@ pub fn setup_real_auth<A>(
 
     let curr_ledger = env.ledger().sequence();
     let max_ttl = env.storage().max_ttl();
-    let signature_expiration_ledger = curr_ledger + max_ttl;
+    let signature_expiration_ledger = curr_ledger.saturating_add(max_ttl);
 
     let network_id_bytes = env.ledger().network_id().to_array();
 
