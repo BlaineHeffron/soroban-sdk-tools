@@ -494,11 +494,11 @@ pub fn setup_real_auth<A>(
 
         let signature = signer.sign_payload(env, &payload_hash);
 
-        let sc_address = ScAddress::from(signer.address());
+        let address = ScAddress::from(signer.address());
 
         entries.push(SorobanAuthorizationEntry {
             credentials: SorobanCredentials::Address(SorobanAddressCredentials {
-                address: sc_address,
+                address,
                 nonce,
                 signature_expiration_ledger,
                 signature,
