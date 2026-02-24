@@ -1,38 +1,49 @@
 //! Authorization testing utilities
 //!
-//! Provides enhanced contract client wrappers that simplify authorization
-//! testing by automatically generating mock authorizations.
+//! Provides utilities for simplified authorization testing by automatically
+//! generating mock or real authorization entries from method invocation details.
+//!
+//! # Mock Auth Example
+//!
+//! ```ignore
+//! use soroban_sdk_tools::contractimport;
+//!
+//! mod my_contract {
+//!     soroban_sdk_tools::contractimport!(
+//!         file = "path/to/contract.wasm"
+//!     );
+//! }
+//!
+//! #[test]
+//! fn test_with_mock_auth() {
+//!     let env = Env::default();
+//!     let contract_id = env.register(my_contract::WASM, ());
+//!     let client = my_contract::AuthClient::new(&env, &contract_id);
+//!     let user = Address::generate(&env);
+//!
+//!     // Builder pattern: method -> authorize -> invoke
+//!     client.my_method(&user, &5).authorize(&user).invoke();
+//! }
+//! ```
+//!
+//! # Real Auth Example
+//!
+//! ```ignore
+//! use soroban_sdk_tools::{Keypair, Secp256k1Keypair, Signer};
+//!
+//! #[test]
+//! fn test_with_real_auth() {
+//!     let env = Env::default();
+//!     let contract_id = env.register(my_contract::WASM, ());
+//!     let client = my_contract::AuthClient::new(&env, &contract_id);
+//!
+//!     let alice = Keypair::random(&env);
+//!     client.transfer(alice.address(), &bob, &300).sign(&alice).invoke();
+//! }
+//! ```
 
-#[cfg(any(test, feature = "testutils"))]
-use soroban_sdk::{Address, Env, Vec};
+pub mod builder;
+pub mod signers;
 
-/// Extension trait for contract clients to enable simplified auth testing
-pub trait ContractClientExt: Sized {
-    /// Invoke the next contract call with authorization from the given addresses
-    fn with_auth(&self, authorizers: &[Address]) -> Self;
-
-    /// Invoke the next contract call with authorization from a single address
-    fn with_auth_single(&self, authorizer: &Address) -> Self {
-        // Note: This is a simplified skeleton - actual implementation will be in macros
-        // For now, just forward to with_auth method
-        let _ = authorizer; // Suppress unused warning
-        self.with_auth(&[])
-    }
-}
-
-// TODO: Implement ContractClientExt for generated contract clients
-// This will require macro support or a wrapper type
-
-/// Helper to build mock authorization entries
-pub fn build_mock_auth(
-    _env: &Env,
-    _contract_id: &Address,
-    _function_name: &str,
-    _args: Vec<soroban_sdk::Val>,
-    _authorizers: &[Address],
-) {
-    // TODO: Implement automatic mock auth generation
-    // 1. Create AuthorizedInvocation structure
-    // 2. Call env.mock_auths() with generated entries
-    unimplemented!("build_mock_auth")
-}
+pub use builder::{setup_mock_auth, setup_real_auth, CallBuilder};
+pub use signers::{Keypair, Secp256k1Keypair, Secp256r1Keypair, Signer};

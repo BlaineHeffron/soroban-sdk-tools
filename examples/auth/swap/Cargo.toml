@@ -1,5 +1,5 @@
 [package]
-name = "soroban-errors-contract"
+name = "soroban-auth-swap"
 version = "0.0.0"
 edition = "2021"
 publish = false
@@ -11,15 +11,10 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
-soroban-sdk-tools = { workspace = true }
-
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 soroban-sdk-tools = { workspace = true, features = ["testutils"] }
 
-
 [package.metadata.stellar]
 cargo_inherit = true
-homepage = "theaha.co"
-repository = "https://github.com/theahaco/scaffold-stellar"

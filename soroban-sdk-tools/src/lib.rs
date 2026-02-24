@@ -18,7 +18,8 @@ pub mod error;
 pub mod key;
 pub mod storage;
 
-#[cfg(any(test, feature = "testutils"))]
+// Auth module – available on any non-WASM target (tests, CLI tools, etc.)
+#[cfg(not(target_family = "wasm"))]
 pub mod auth;
 
 // Re-export commonly used types
@@ -28,5 +29,7 @@ pub use storage::{
     InstanceItem, InstanceMap, PersistentItem, PersistentMap, TemporaryItem, TemporaryMap,
 };
 
-#[cfg(any(test, feature = "testutils"))]
-pub use auth::ContractClientExt;
+#[cfg(not(target_family = "wasm"))]
+pub use auth::{
+    setup_mock_auth, setup_real_auth, Keypair, Secp256k1Keypair, Secp256r1Keypair, Signer,
+};

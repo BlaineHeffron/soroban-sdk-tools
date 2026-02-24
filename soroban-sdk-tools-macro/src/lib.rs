@@ -64,12 +64,13 @@ pub fn scerr(attr: TokenStream, item: TokenStream) -> TokenStream {
     error::scerr_impl(attr, item)
 }
 
-/// Import a contract from WASM with enhanced error handling support.
+/// Import a contract from WASM with enhanced error handling and auth testing support.
 ///
 /// This macro wraps `soroban_sdk::contractimport!` and additionally generates:
 /// - `ContractError` implementations for imported error types (`into_code`, `from_code`, `description`)
 /// - `ContractErrorSpec` implementations for imported error types (variant metadata)
 /// - Spec constants providing programmatic access to error variant info
+/// - `AuthClient` for simplified authorization testing (testutils feature)
 ///
 /// These trait implementations enable imported error types to be used as inner
 /// types in `#[scerr]` root enums with `#[transparent]` or `#[from_contract_client]`.
@@ -79,16 +80,34 @@ pub fn scerr(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - `file` (required): Path to the WASM file to import
 /// - `sha256` (optional): SHA256 hash to verify the WASM file
 ///
+/// # Generated Types
+///
+/// - `Client<'a>`: Standard contract client (from soroban-spec-rust)
+/// - `AuthClient<'a>`: Auth-testing wrapper client (when testutils enabled)
+/// - Error enums with `ContractErrorSpec` implementations
+///
 /// # Example
 ///
 /// ```ignore
 /// mod math_imported {
 ///     soroban_sdk_tools::contractimport!(
-///         file = "../target/wasm32v1-none/release/math_contract.wasm",
+///         file = "../target/wasm32v1-none/release/math_contract.wasm"
 ///     );
 /// }
 ///
-/// // Mode is auto-detected due to #[from_contract_client] attribute
+/// // Use AuthClient for simplified auth testing
+/// #[test]
+/// fn test_with_auth() {
+///     let env = Env::default();
+///     let contract_id = env.register_contract_wasm(None, &math_imported::WASM);
+///     let client = math_imported::AuthClient::new(&env, &contract_id);
+///     let user = Address::generate(&env);
+///
+///     // Auto-generates MockAuth entries
+///     client.with_auth(&user).increment(&user, &5);
+/// }
+///
+/// // Use with scerr for composable errors
 /// #[scerr]
 /// pub enum AppError {
 ///     Unauthorized,
