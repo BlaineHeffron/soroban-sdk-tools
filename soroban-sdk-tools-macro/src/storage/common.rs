@@ -531,7 +531,7 @@ fn generate_key_method(
 fn generate_static_convenience_methods(
     field: &FinalizedField,
     module_name: &Ident,
-) -> Result<Vec<proc_macro2::TokenStream>> {
+) -> Result<proc_macro2::TokenStream> {
     let vis = &field.vis;
     let name = &field.name;
     let ty = &field.ty;
@@ -546,72 +546,48 @@ fn generate_static_convenience_methods(
 
     if ty.is_storage_item_type() {
         let val_ty = ty.extract_item_value_type()?;
-        Ok(vec![
-            quote! {
-                #vis fn #get_name(env: &::soroban_sdk::Env) -> Option<#val_ty> {
-                    #init_expr.get()
-                }
-            },
-            quote! {
-                #vis fn #set_name(env: &::soroban_sdk::Env, value: &#val_ty) {
-                    #init_expr.set(value);
-                }
-            },
-            quote! {
-                #vis fn #has_name(env: &::soroban_sdk::Env) -> bool {
-                    #init_expr.has()
-                }
-            },
-            quote! {
-                #vis fn #remove_name(env: &::soroban_sdk::Env) {
-                    #init_expr.remove();
-                }
-            },
-            quote! {
-                #vis fn #update_name(env: &::soroban_sdk::Env, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
-                    #init_expr.update(f)
-                }
-            },
-            quote! {
-                #vis fn #extend_name(env: &::soroban_sdk::Env, threshold: u32, extend_to: u32) {
-                    #init_expr.extend_ttl(threshold, extend_to);
-                }
-            },
-        ])
+        Ok(quote! {
+            #vis fn #get_name(env: &::soroban_sdk::Env) -> Option<#val_ty> {
+                #init_expr.get()
+            }
+            #vis fn #set_name(env: &::soroban_sdk::Env, value: &#val_ty) {
+                #init_expr.set(value);
+            }
+            #vis fn #has_name(env: &::soroban_sdk::Env) -> bool {
+                #init_expr.has()
+            }
+            #vis fn #remove_name(env: &::soroban_sdk::Env) {
+                #init_expr.remove();
+            }
+            #vis fn #update_name(env: &::soroban_sdk::Env, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                #init_expr.update(f)
+            }
+            #vis fn #extend_name(env: &::soroban_sdk::Env, threshold: u32, extend_to: u32) {
+                #init_expr.extend_ttl(threshold, extend_to);
+            }
+        })
     } else if ty.is_storage_map_type() {
         let (key_ty, val_ty, _) = ty.extract_map_generics()?;
-        Ok(vec![
-            quote! {
-                #vis fn #get_name(env: &::soroban_sdk::Env, key: &#key_ty) -> Option<#val_ty> {
-                    #init_expr.get(key)
-                }
-            },
-            quote! {
-                #vis fn #set_name(env: &::soroban_sdk::Env, key: &#key_ty, value: &#val_ty) {
-                    #init_expr.set(key, value);
-                }
-            },
-            quote! {
-                #vis fn #has_name(env: &::soroban_sdk::Env, key: &#key_ty) -> bool {
-                    #init_expr.has(key)
-                }
-            },
-            quote! {
-                #vis fn #remove_name(env: &::soroban_sdk::Env, key: &#key_ty) {
-                    #init_expr.remove(key);
-                }
-            },
-            quote! {
-                #vis fn #update_name(env: &::soroban_sdk::Env, key: &#key_ty, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
-                    #init_expr.update(key, f)
-                }
-            },
-            quote! {
-                #vis fn #extend_name(env: &::soroban_sdk::Env, key: &#key_ty, threshold: u32, extend_to: u32) {
-                    #init_expr.extend_ttl(key, threshold, extend_to);
-                }
-            },
-        ])
+        Ok(quote! {
+            #vis fn #get_name(env: &::soroban_sdk::Env, key: &#key_ty) -> Option<#val_ty> {
+                #init_expr.get(key)
+            }
+            #vis fn #set_name(env: &::soroban_sdk::Env, key: &#key_ty, value: &#val_ty) {
+                #init_expr.set(key, value);
+            }
+            #vis fn #has_name(env: &::soroban_sdk::Env, key: &#key_ty) -> bool {
+                #init_expr.has(key)
+            }
+            #vis fn #remove_name(env: &::soroban_sdk::Env, key: &#key_ty) {
+                #init_expr.remove(key);
+            }
+            #vis fn #update_name(env: &::soroban_sdk::Env, key: &#key_ty, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                #init_expr.update(key, f)
+            }
+            #vis fn #extend_name(env: &::soroban_sdk::Env, key: &#key_ty, threshold: u32, extend_to: u32) {
+                #init_expr.extend_ttl(key, threshold, extend_to);
+            }
+        })
     } else {
         let type_name = ty
             .get_type_name()
@@ -677,10 +653,7 @@ pub fn generate_items(
     let convenience_methods: Vec<proc_macro2::TokenStream> = finalized_fields
         .iter()
         .map(|f| generate_static_convenience_methods(f, &module_name))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     // Only rebuild when symbolic maps require type changes
     let needs_rebuilt = finalized_fields
