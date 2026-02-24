@@ -9,11 +9,11 @@ path:
 
 # build contracts
 build:
-    just _build soroban-errors-external-contract
     just _build soroban-errors-calc-contract
+    just _build soroban-errors-external-contract
     just _build soroban-errors-contract
-    just _build soroban-auth-vault
     just _build soroban-auth-token
+    just _build soroban-auth-vault
     just _build soroban-auth-swap
 
 [private]
