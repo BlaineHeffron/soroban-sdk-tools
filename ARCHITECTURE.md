@@ -96,7 +96,14 @@ To facilitate streamlined declarations, the crate introduces attribute macros fo
 | \#\[derive(Default)\]\#\[contractstorage\]pub struct TokenStorage {    balances: PersistentMap\<Address, u32\>,    owner: PersistentItem\<Address\>,} |
 | :---- |
 
-The `#[contractstorage]` macro generates initialization code and accessors that interact with the ledger. Keys are derived from Rust values (e.g., strings or enum variants) and converted into compact `Symbol` or `BytesN` formats, prioritizing uniqueness and minimal byte consumption.
+The `#[contractstorage]` macro generates initialization code, accessors, and **static convenience methods** that interact with the ledger. For each field, the macro produces one-liner associated functions (e.g., `get_{field}`, `set_{field}`, `has_{field}`, `remove_{field}`, `update_{field}`, `extend_{field}_ttl`) that construct the storage handle inline. This allows single-operation access without instantiating the full struct:
+
+| MyStorage::set\_balances(\&env, \&addr, \&100); // one-liner |
+| :---- |
+
+For multi-operation scenarios, the struct pattern (`MyStorage::new(&env)`) remains available, constructing all handles once.
+
+Keys are derived from Rust values (e.g., strings or enum variants) and converted into compact `Symbol` or `BytesN` formats, prioritizing uniqueness and minimal byte consumption.
 
 The primary advancement over Loam's existing storage framework lies in key size optimization. Loam's current approach constructs prefixes combining the struct name and individual field name before appending the map's key (e.g., an address). In `soroban-sdk-tools`, users gain two configurable options for key shortening:
 
@@ -195,7 +202,7 @@ These utilities, housed in `key.rs`, are used by both the storage and error hand
 
 The procedural macros, defined in the `soroban-sdk-tools-macro` crate (`src/contract.rs`, `src/storage.rs`, `src/error.rs`, and `src/util.rs`), provide an ergonomic interface for developers to define storage and error structures. The following macros are implemented:
 
-* **\#\[contractstorage\]**: Applied to a struct to designate its fields as storage items (e.g., `PersistentMap`, `InstanceMap`, `PersistentItem`). The macro parses field types and optional attributes (e.g., `#[short_key("shortname")]`) to generate initialization code and accessor methods. It also implements `Default` to initialize maps with keys derived from field names, incorporating the key shortening and namespacing logic from the `key.rs` module. For example:
+* **\#\[contractstorage\]**: Applied to a struct to designate its fields as storage items (e.g., `PersistentMap`, `InstanceMap`, `PersistentItem`). The macro parses field types and optional attributes (e.g., `#[short_key("shortname")]`) to generate initialization code, accessor methods, and static convenience methods (e.g., `get_{field}`, `set_{field}`, `has_{field}`, `remove_{field}`, `update_{field}`, `extend_{field}_ttl`). It also implements `Default` to initialize maps with keys derived from field names, incorporating the key shortening and namespacing logic from the `key.rs` module. For example:
 
 | \#\[contractstorage\]pub struct TokenStorage {    \#\[short\_key("b")\]    balances: PersistentMap\<Address, u32\>,    owner: PersistentItem\<Symbol, Address\>,} |
 | :---- |

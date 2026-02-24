@@ -352,6 +352,145 @@ fn test_temporary_storage_item() {
 }
 
 // ============================================================================
+// Static Convenience Method Tests
+// ============================================================================
+
+mod convenience {
+    use super::*;
+
+    #[contractstorage]
+    pub struct ConvenienceStorage {
+        #[short_key = "v"]
+        value: PersistentItem<u64>,
+        #[short_key = "b"]
+        balances: PersistentMap<Address, u64>,
+        #[short_key = "t"]
+        temp: TemporaryItem<u64>,
+        #[short_key = "d"]
+        data: TemporaryMap<Address, u64>,
+    }
+
+    #[contract]
+    pub struct ConvenienceContract;
+
+    #[contractimpl]
+    impl ConvenienceContract {
+        // Item one-liners
+        pub fn set_value(env: Env, val: u64) {
+            ConvenienceStorage::set_value(&env, &val);
+        }
+
+        pub fn get_value(env: Env) -> Option<u64> {
+            ConvenienceStorage::get_value(&env)
+        }
+
+        pub fn has_value(env: Env) -> bool {
+            ConvenienceStorage::has_value(&env)
+        }
+
+        pub fn remove_value(env: Env) {
+            ConvenienceStorage::remove_value(&env);
+        }
+
+        pub fn update_value(env: Env, amount: u64) -> u64 {
+            ConvenienceStorage::update_value(&env, |current| {
+                current.unwrap_or(0) + amount
+            })
+        }
+
+        // Map one-liners
+        pub fn set_balance(env: Env, addr: Address, val: u64) {
+            ConvenienceStorage::set_balances(&env, &addr, &val);
+        }
+
+        pub fn get_balance(env: Env, addr: Address) -> Option<u64> {
+            ConvenienceStorage::get_balances(&env, &addr)
+        }
+
+        pub fn has_balance(env: Env, addr: Address) -> bool {
+            ConvenienceStorage::has_balances(&env, &addr)
+        }
+
+        pub fn remove_balance(env: Env, addr: Address) {
+            ConvenienceStorage::remove_balances(&env, &addr);
+        }
+
+        pub fn update_balance(env: Env, addr: Address, amount: u64) -> u64 {
+            ConvenienceStorage::update_balances(&env, &addr, |current| {
+                current.unwrap_or(0) + amount
+            })
+        }
+    }
+}
+
+#[test]
+fn test_convenience_item_methods() {
+    let env = Env::default();
+    let contract_id = env.register(convenience::ConvenienceContract, ());
+    let client = convenience::ConvenienceContractClient::new(&env, &contract_id);
+
+    // Initially empty
+    assert_eq!(client.get_value(), None);
+    assert!(!client.has_value());
+
+    // Set and get
+    client.set_value(&42);
+    assert_eq!(client.get_value(), Some(42));
+    assert!(client.has_value());
+
+    // Update
+    let new_val = client.update_value(&10);
+    assert_eq!(new_val, 52);
+    assert_eq!(client.get_value(), Some(52));
+
+    // Remove
+    client.remove_value();
+    assert_eq!(client.get_value(), None);
+    assert!(!client.has_value());
+}
+
+#[test]
+fn test_convenience_map_methods() {
+    let env = Env::default();
+    let contract_id = env.register(convenience::ConvenienceContract, ());
+    let client = convenience::ConvenienceContractClient::new(&env, &contract_id);
+
+    let addr = Address::generate(&env);
+
+    // Initially empty
+    assert_eq!(client.get_balance(&addr), None);
+    assert!(!client.has_balance(&addr));
+
+    // Set and get
+    client.set_balance(&addr, &100);
+    assert_eq!(client.get_balance(&addr), Some(100));
+    assert!(client.has_balance(&addr));
+
+    // Update
+    let new_val = client.update_balance(&addr, &50);
+    assert_eq!(new_val, 150);
+    assert_eq!(client.get_balance(&addr), Some(150));
+
+    // Remove
+    client.remove_balance(&addr);
+    assert_eq!(client.get_balance(&addr), None);
+    assert!(!client.has_balance(&addr));
+}
+
+#[test]
+fn test_convenience_interop_with_struct() {
+    let env = Env::default();
+    let contract_id = env.register(convenience::ConvenienceContract, ());
+    let client = convenience::ConvenienceContractClient::new(&env, &contract_id);
+
+    // Set via one-liner
+    client.set_value(&99);
+
+    // Read via struct pattern (inside contract call that uses struct)
+    assert_eq!(client.get_value(), Some(99));
+}
+
+// ============================================================================
 // Storage Persistence Tests
 // ============================================================================
 

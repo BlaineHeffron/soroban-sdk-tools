@@ -19,6 +19,9 @@ pub trait TypeExt {
     /// Extract key and value types from a map type
     fn extract_map_generics(&self) -> syn::Result<(Type, Type, Ident)>;
 
+    /// Extract value type from an item type (e.g., `PersistentItem<V>` -> `V`)
+    fn extract_item_value_type(&self) -> syn::Result<Type>;
+
     /// Check if a type is a storage map type (`PersistentMap`, `InstanceMap`, `TemporaryMap`)
     fn is_storage_map_type(&self) -> bool {
         matches!(
@@ -115,6 +118,24 @@ impl TypeExt for Type {
         Err(Error::new_spanned(
             self,
             "Invalid map type: expected a type like PersistentMap<K, V>",
+        ))
+    }
+
+    fn extract_item_value_type(&self) -> syn::Result<Type> {
+        if let Type::Path(type_path) = self {
+            if let Some(segment) = type_path.path.segments.last() {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if args.args.len() == 1 {
+                        if let syn::GenericArgument::Type(v) = &args.args[0] {
+                            return Ok(v.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Err(Error::new_spanned(
+            self,
+            "Invalid item type: expected a type like PersistentItem<V>",
         ))
     }
 
