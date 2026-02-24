@@ -12,7 +12,7 @@ members = [
 [workspace.package]
 version = "0.1.1"
 authors = ["Blaine Heffron", "Willem Wyndham"]
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 edition = "2021"
 rust-version = "1.74"
 repository = "https://github.com/blaineheffron/soroban-sdk-tools"
