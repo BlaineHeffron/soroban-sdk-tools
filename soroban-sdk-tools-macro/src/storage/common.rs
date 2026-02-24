@@ -409,12 +409,13 @@ fn generate_field_decl(
     }
 }
 
-/// Generate field initialization in the `new` method
-fn generate_field_init(
+/// Generate the bare storage handle construction expression for a field.
+/// Used by both `generate_field_init` (for struct construction) and
+/// `generate_static_convenience_methods` (for inline one-liners).
+fn generate_storage_handle_expr(
     field: &FinalizedField,
     module_name: &Ident,
 ) -> Result<proc_macro2::TokenStream> {
-    let name = &field.name;
     let ty = &field.ty;
     let prefix_lit = Lit::Str(LitStr::new(&field.assigned_key, field.name.span()));
 
@@ -424,11 +425,11 @@ fn generate_field_init(
         if ty.is_storage_map_type() {
             let (key_ty, val_ty, map_ident) = ty.extract_map_generics()?;
             Ok(quote! {
-                #name: <#map_ident<#key_ty, #val_ty, #module_name::#wrapper_name>>::new_raw(&env)
+                <#map_ident<#key_ty, #val_ty, #module_name::#wrapper_name>>::new_raw(&env)
             })
         } else {
             Ok(quote! {
-                #name: <#ty>::new_raw(&env,
+                <#ty>::new_raw(&env,
                     ::soroban_sdk_tools::key::StorageKey::to_key(
                         & #module_name :: #wrapper_name ::default(),
                         &env
@@ -438,9 +439,19 @@ fn generate_field_init(
         }
     } else {
         Ok(quote! {
-            #name: <#ty>::new_hashed(&env, #prefix_lit)
+            <#ty>::new_hashed(&env, #prefix_lit)
         })
     }
+}
+
+/// Generate field initialization in the `new` method
+fn generate_field_init(
+    field: &FinalizedField,
+    module_name: &Ident,
+) -> Result<proc_macro2::TokenStream> {
+    let name = &field.name;
+    let expr = generate_storage_handle_expr(field, module_name)?;
+    Ok(quote! { #name: #expr })
 }
 
 /// Generate accessor method if `auto_shorten` is enabled
@@ -513,132 +524,103 @@ fn generate_key_method(
     }
 }
 
-/// Generate a field-init expression for use in static convenience methods.
-/// This constructs just the single storage handle inline.
-fn generate_inline_field_init(
-    field: &FinalizedField,
-    module_name: &Ident,
-) -> Result<proc_macro2::TokenStream> {
-    let ty = &field.ty;
-    let prefix_lit = Lit::Str(LitStr::new(&field.assigned_key, field.name.span()));
-
-    if field.is_symbolic {
-        let wrapper_name = wrapper_ident(field);
-
-        if ty.is_storage_map_type() {
-            let (key_ty, val_ty, map_ident) = ty.extract_map_generics()?;
-            Ok(quote! {
-                <#map_ident<#key_ty, #val_ty, #module_name::#wrapper_name>>::new_raw(&env)
-            })
-        } else {
-            Ok(quote! {
-                <#ty>::new_raw(&env,
-                    ::soroban_sdk_tools::key::StorageKey::to_key(
-                        & #module_name :: #wrapper_name ::default(),
-                        &env
-                    )
-                )
-            })
-        }
-    } else {
-        Ok(quote! {
-            <#ty>::new_hashed(&env, #prefix_lit)
-        })
-    }
-}
-
-/// Generate static convenience methods for a single field
+/// Generate static convenience methods for a single field.
+/// These are always generated regardless of `auto_shorten`, since they provide
+/// a different ergonomic benefit (one-liner access) than the accessor methods
+/// (which are only needed with `auto_shorten` to access shortened field names).
 fn generate_static_convenience_methods(
     field: &FinalizedField,
     module_name: &Ident,
 ) -> Result<Vec<proc_macro2::TokenStream>> {
+    let vis = &field.vis;
     let name = &field.name;
     let ty = &field.ty;
-    let init_expr = generate_inline_field_init(field, module_name)?;
+    let init_expr = generate_storage_handle_expr(field, module_name)?;
 
-    let mut methods = Vec::new();
+    let get_name = format_ident!("get_{}", name);
+    let set_name = format_ident!("set_{}", name);
+    let has_name = format_ident!("has_{}", name);
+    let remove_name = format_ident!("remove_{}", name);
+    let update_name = format_ident!("update_{}", name);
+    let extend_name = format_ident!("extend_{}_ttl", name);
 
     if ty.is_storage_item_type() {
         let val_ty = ty.extract_item_value_type()?;
-        let get_name = format_ident!("get_{}", name);
-        let set_name = format_ident!("set_{}", name);
-        let has_name = format_ident!("has_{}", name);
-        let remove_name = format_ident!("remove_{}", name);
-        let update_name = format_ident!("update_{}", name);
-        let extend_name = format_ident!("extend_{}_ttl", name);
-
-        methods.push(quote! {
-            pub fn #get_name(env: &::soroban_sdk::Env) -> Option<#val_ty> {
-                #init_expr.get()
-            }
-        });
-        methods.push(quote! {
-            pub fn #set_name(env: &::soroban_sdk::Env, value: &#val_ty) {
-                #init_expr.set(value);
-            }
-        });
-        methods.push(quote! {
-            pub fn #has_name(env: &::soroban_sdk::Env) -> bool {
-                #init_expr.has()
-            }
-        });
-        methods.push(quote! {
-            pub fn #remove_name(env: &::soroban_sdk::Env) {
-                #init_expr.remove();
-            }
-        });
-        methods.push(quote! {
-            pub fn #update_name(env: &::soroban_sdk::Env, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
-                #init_expr.update(f)
-            }
-        });
-        methods.push(quote! {
-            pub fn #extend_name(env: &::soroban_sdk::Env, threshold: u32, extend_to: u32) {
-                #init_expr.extend_ttl(threshold, extend_to);
-            }
-        });
+        Ok(vec![
+            quote! {
+                #vis fn #get_name(env: &::soroban_sdk::Env) -> Option<#val_ty> {
+                    #init_expr.get()
+                }
+            },
+            quote! {
+                #vis fn #set_name(env: &::soroban_sdk::Env, value: &#val_ty) {
+                    #init_expr.set(value);
+                }
+            },
+            quote! {
+                #vis fn #has_name(env: &::soroban_sdk::Env) -> bool {
+                    #init_expr.has()
+                }
+            },
+            quote! {
+                #vis fn #remove_name(env: &::soroban_sdk::Env) {
+                    #init_expr.remove();
+                }
+            },
+            quote! {
+                #vis fn #update_name(env: &::soroban_sdk::Env, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                    #init_expr.update(f)
+                }
+            },
+            quote! {
+                #vis fn #extend_name(env: &::soroban_sdk::Env, threshold: u32, extend_to: u32) {
+                    #init_expr.extend_ttl(threshold, extend_to);
+                }
+            },
+        ])
     } else if ty.is_storage_map_type() {
         let (key_ty, val_ty, _) = ty.extract_map_generics()?;
-        let get_name = format_ident!("get_{}", name);
-        let set_name = format_ident!("set_{}", name);
-        let has_name = format_ident!("has_{}", name);
-        let remove_name = format_ident!("remove_{}", name);
-        let update_name = format_ident!("update_{}", name);
-        let extend_name = format_ident!("extend_{}_ttl", name);
-
-        methods.push(quote! {
-            pub fn #get_name(env: &::soroban_sdk::Env, key: &#key_ty) -> Option<#val_ty> {
-                #init_expr.get(key)
-            }
-        });
-        methods.push(quote! {
-            pub fn #set_name(env: &::soroban_sdk::Env, key: &#key_ty, value: &#val_ty) {
-                #init_expr.set(key, value);
-            }
-        });
-        methods.push(quote! {
-            pub fn #has_name(env: &::soroban_sdk::Env, key: &#key_ty) -> bool {
-                #init_expr.has(key)
-            }
-        });
-        methods.push(quote! {
-            pub fn #remove_name(env: &::soroban_sdk::Env, key: &#key_ty) {
-                #init_expr.remove(key);
-            }
-        });
-        methods.push(quote! {
-            pub fn #update_name(env: &::soroban_sdk::Env, key: &#key_ty, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
-                #init_expr.update(key, f)
-            }
-        });
-        methods.push(quote! {
-            pub fn #extend_name(env: &::soroban_sdk::Env, key: &#key_ty, threshold: u32, extend_to: u32) {
-                #init_expr.extend_ttl(key, threshold, extend_to);
-            }
-        });
+        Ok(vec![
+            quote! {
+                #vis fn #get_name(env: &::soroban_sdk::Env, key: &#key_ty) -> Option<#val_ty> {
+                    #init_expr.get(key)
+                }
+            },
+            quote! {
+                #vis fn #set_name(env: &::soroban_sdk::Env, key: &#key_ty, value: &#val_ty) {
+                    #init_expr.set(key, value);
+                }
+            },
+            quote! {
+                #vis fn #has_name(env: &::soroban_sdk::Env, key: &#key_ty) -> bool {
+                    #init_expr.has(key)
+                }
+            },
+            quote! {
+                #vis fn #remove_name(env: &::soroban_sdk::Env, key: &#key_ty) {
+                    #init_expr.remove(key);
+                }
+            },
+            quote! {
+                #vis fn #update_name(env: &::soroban_sdk::Env, key: &#key_ty, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                    #init_expr.update(key, f)
+                }
+            },
+            quote! {
+                #vis fn #extend_name(env: &::soroban_sdk::Env, key: &#key_ty, threshold: u32, extend_to: u32) {
+                    #init_expr.extend_ttl(key, threshold, extend_to);
+                }
+            },
+        ])
+    } else {
+        let type_name = ty
+            .get_type_name()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        Err(Error::new_spanned(
+            ty,
+            format!("Unsupported storage type '{type_name}' for convenience methods."),
+        ))
     }
-
-    Ok(methods)
 }
 
 /// Generate the output items from finalized fields
