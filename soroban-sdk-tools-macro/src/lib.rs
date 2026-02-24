@@ -10,18 +10,49 @@ mod util;
 
 /// Define storage structures with automatic key management
 ///
-/// This is a function-like macro that processes multiple struct definitions,
-/// performing global key shortening and collision checks.
+/// This attribute macro transforms a struct with storage field declarations into
+/// a fully-functional storage structure with automatic key generation and
+/// static convenience methods.
+///
+/// # Generated API
+///
+/// For each field, the macro generates static one-liner methods on the struct:
+///
+/// **Item fields** (`PersistentItem<V>`, `InstanceItem<V>`, `TemporaryItem<V>`):
+/// - `get_{field}(env) -> Option<V>`
+/// - `set_{field}(env, &V)`
+/// - `has_{field}(env) -> bool`
+/// - `remove_{field}(env)`
+/// - `update_{field}(env, f) -> V`
+/// - `extend_{field}_ttl(env, threshold, extend_to)`
+///
+/// **Map fields** (`PersistentMap<K, V>`, `InstanceMap<K, V>`, `TemporaryMap<K, V>`):
+/// - `get_{field}(env, &K) -> Option<V>`
+/// - `set_{field}(env, &K, &V)`
+/// - `has_{field}(env, &K) -> bool`
+/// - `remove_{field}(env, &K)`
+/// - `update_{field}(env, &K, f) -> V`
+/// - `extend_{field}_ttl(env, &K, threshold, extend_to)`
+///
+/// A `new(env) -> Self` constructor is also generated for multi-operation access.
 ///
 /// # Example
 /// ```ignore
-///     #[contractstorage(auto_shorten = true)]
-///     pub struct MyStorage {
-///         #[short_key("bal")]
-///         balances: PersistentMap<Address, i128>,
-///         owner: PersistentItem<Address>,
-///     }
+/// #[contractstorage(auto_shorten = true)]
+/// pub struct MyStorage {
+///     #[short_key = "bal"]
+///     balances: PersistentMap<Address, i128>,
+///     owner: PersistentItem<Address>,
 /// }
+///
+/// // One-liner access:
+/// let bal = MyStorage::get_balances(&env, &addr);
+/// MyStorage::set_owner(&env, &admin);
+///
+/// // Or struct-based for multiple operations:
+/// let s = MyStorage::new(&env);
+/// s.balances.set(&addr, &100);
+/// s.owner.set(&admin);
 /// ```
 #[proc_macro_attribute]
 pub fn contractstorage(attr: TokenStream, item: TokenStream) -> TokenStream {

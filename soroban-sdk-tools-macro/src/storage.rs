@@ -1,12 +1,14 @@
 //! Implementation of the contractstorage macro
 //!
 //! This macro transforms structs with storage field declarations into
-//! fully-functional storage structures with automatic key generation.
+//! fully-functional storage structures with automatic key generation
+//! and static convenience methods for one-liner access.
 //!
 //! The implementation is split into three modules:
 //! - `single`: Handles single-struct processing via #[contractstorage]
 //! - `module`: Handles module-level processing via #[`contractstorage_module`]
-//! - `common`: Shared utilities and core transformation logic
+//! - `common`: Shared utilities and core transformation logic (including
+//!   convenience method generation)
 
 mod common;
 mod module;

@@ -176,9 +176,8 @@ impl FeaturesContract {
         config.metadata.set(&String::from_str(env, "name"), &name);
         config.metadata.set(&String::from_str(env, "symbol"), &symbol);
         
-        // Initialize token data
-        let data = TokenData::new(env);
-        data.total_supply().set(&0);
+        // Initialize token data with one-liner
+        TokenData::set_total_supply(env, &0);
         
         // Extend instance TTL
         env.storage().instance().extend_ttl(50, 100);
@@ -191,26 +190,18 @@ impl FeaturesContract {
     // ========================================================================
     
     pub fn set_metadata(env: &Env, key: String, value: String) -> Result<(), Error> {
-        let config = Config::new(env);
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        config.metadata.set(&key, &value);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
+        Config::set_metadata(env, &key, &value);
         Ok(())
     }
-    
+
     pub fn get_metadata(env: &Env, key: String) -> Option<String> {
-        Config::new(env).metadata.get(&key)
+        Config::get_metadata(env, &key)
     }
-    
+
     pub fn remove_metadata(env: &Env, key: String) -> Result<(), Error> {
-        let config = Config::new(env);
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        config.metadata.remove(&key);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
+        Config::remove_metadata(env, &key);
         Ok(())
     }
     
@@ -219,29 +210,16 @@ impl FeaturesContract {
     // ========================================================================
     
     pub fn mint(env: &Env, to: &Address, amount: i128) -> Result<(), Error> {
-        let config = Config::new(env);
-        if !config.enabled.get().unwrap_or(false) {
+        if !Config::get_enabled(env).unwrap_or(false) {
             return Err(Error::ContractPaused);
         }
-        
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        let data = TokenData::new(env);
-        
-        // Use .update() for atomic read-modify-write
-        data.balances().update(to, |balance| {
-            balance.unwrap_or(0) + amount
-        });
-        
-        // Update total supply
-        data.total_supply().update(|supply| {
-            supply.unwrap_or(0) + amount
-        });
-        
-        // Extend TTL for the balance entry
-        data.balances().extend_ttl(to, 50, 100);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
+
+        // Use one-liner .update() for atomic read-modify-write
+        TokenData::update_balances(env, to, |balance| balance.unwrap_or(0) + amount);
+        TokenData::update_total_supply(env, |supply| supply.unwrap_or(0) + amount);
+        TokenData::extend_balances_ttl(env, to, 50, 100);
+
         Ok(())
     }
     
@@ -252,28 +230,22 @@ impl FeaturesContract {
         amount: i128,
     ) -> Result<(), Error> {
         from.require_auth();
-        
-        let registry = TokenRegistry::new(env);
-        
-        // Check if sender is frozen (demonstrates custom short_key map)
-        if registry.frozen.get(from).unwrap_or(false) {
+
+        // Check if sender is frozen (demonstrates custom short_key map one-liner)
+        if TokenRegistry::get_frozen(env, from).unwrap_or(false) {
             return Err(Error::AccountFrozen);
         }
-        
-        let data = TokenData::new(env);
-        
+
         // Get and validate sender balance
-        let from_balance = data.balances().get(from).unwrap_or(0);
+        let from_balance = TokenData::get_balances(env, from).unwrap_or(0);
         if from_balance < amount {
             return Err(Error::NotAuthorized);
         }
-        
+
         // Update balances
-        data.balances().set(from, &(from_balance - amount));
-        data.balances().update(to, |balance| {
-            balance.unwrap_or(0) + amount
-        });
-        
+        TokenData::set_balances(env, from, &(from_balance - amount));
+        TokenData::update_balances(env, to, |balance| balance.unwrap_or(0) + amount);
+
         Ok(())
     }
 
@@ -283,12 +255,8 @@ impl FeaturesContract {
     
     pub fn approve(env: &Env, from: &Address, spender: &Address, amount: i128) -> Result<(), Error> {
         from.require_auth();
-        
-        let registry = TokenRegistry::new(env);
-        
-        // Set allowance using tuple key (from, spender)
-        registry.allowances.set(&(from.clone(), spender.clone()), &amount);
-        
+        // Set allowance using tuple key (from, spender) - one-liner
+        TokenRegistry::set_allowances(env, &(from.clone(), spender.clone()), &amount);
         Ok(())
     }
     
@@ -300,37 +268,21 @@ impl FeaturesContract {
         amount: i128,
     ) -> Result<(), Error> {
         spender.require_auth();
-        
-        let registry = TokenRegistry::new(env);
-        
-        // Check allowance
-        let allowance = registry
-            .allowances
-            .get(&(from.clone(), spender.clone()))
-            .unwrap_or(0);
-        
+
+        let pair = (from.clone(), spender.clone());
+        let allowance = TokenRegistry::get_allowances(env, &pair).unwrap_or(0);
         if allowance < amount {
             return Err(Error::NotAuthorized);
         }
-        
-        // Update allowance
-        registry
-            .allowances
-            .set(&(from.clone(), spender.clone()), &(allowance - amount));
-        
-        // Perform transfer
-        let data = TokenData::new(env);
-        let from_balance = data.balances().get(from).unwrap_or(0);
-        
+        TokenRegistry::set_allowances(env, &pair, &(allowance - amount));
+
+        let from_balance = TokenData::get_balances(env, from).unwrap_or(0);
         if from_balance < amount {
             return Err(Error::NotAuthorized);
         }
-        
-        data.balances().set(from, &(from_balance - amount));
-        data.balances().update(to, |balance| {
-            balance.unwrap_or(0) + amount
-        });
-        
+        TokenData::set_balances(env, from, &(from_balance - amount));
+        TokenData::update_balances(env, to, |balance| balance.unwrap_or(0) + amount);
+
         Ok(())
     }
     
@@ -339,29 +291,19 @@ impl FeaturesContract {
     // ========================================================================
     
     pub fn freeze_account(env: &Env, account: &Address) -> Result<(), Error> {
-        let config = Config::new(env);
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        let registry = TokenRegistry::new(env);
-        registry.frozen.set(account, &true);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
+        TokenRegistry::set_frozen(env, account, &true);
         Ok(())
     }
-    
+
     pub fn unfreeze_account(env: &Env, account: &Address) -> Result<(), Error> {
-        let config = Config::new(env);
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        let registry = TokenRegistry::new(env);
-        registry.frozen.remove(account);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
+        TokenRegistry::remove_frozen(env, account);
         Ok(())
     }
-    
+
     pub fn is_frozen(env: &Env, account: &Address) -> bool {
-        TokenRegistry::new(env).frozen.get(account).unwrap_or(false)
+        TokenRegistry::get_frozen(env, account).unwrap_or(false)
     }
     
     // ========================================================================
@@ -369,29 +311,17 @@ impl FeaturesContract {
     // ========================================================================
     
     pub fn record_event(env: &Env, event_id: u64, description: String) -> Result<(), Error> {
-        let config = Config::new(env);
-        let admin = config.admin.get().ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        
-        let gov = GovernanceData::new(env);
-        
+        Config::get_admin(env).ok_or(Error::NotInitialized)?.require_auth();
         // Events use symbolic keys for easy inspection
-        gov.events.set(&event_id, &description);
-        
-        // Update vote count
-        gov.vote_count().update(|count| count.unwrap_or(0) + 1);
-        
+        GovernanceData::set_events(env, &event_id, &description);
+        GovernanceData::update_vote_count(env, |count| count.unwrap_or(0) + 1);
         Ok(())
     }
-    
+
     pub fn create_proposal(env: &Env, proposal_id: u64, proposer: &Address) -> Result<(), Error> {
         proposer.require_auth();
-        
-        let gov = GovernanceData::new(env);
-        
         // Proposals use optimized hashed keys
-        gov.proposals.set(&proposal_id, proposer);
-        
+        GovernanceData::set_proposals(env, &proposal_id, proposer);
         Ok(())
     }
     
@@ -406,40 +336,29 @@ impl FeaturesContract {
     /// extended by anyone. Never rely solely on expiration for security!
     pub fn faucet(env: &Env, user: &Address) -> Result<(), Error> {
         user.require_auth();
-        
-        let config = Config::new(env);
-        if !config.enabled.get().unwrap_or(false) {
+
+        if !Config::get_enabled(env).unwrap_or(false) {
             return Err(Error::ContractPaused);
         }
-        
-        let limits = RateLimitData::new(env);
+
         let current_ledger = env.ledger().sequence();
-        
+
         // Check rate limit by comparing stored ledger number
-        if let Some(last_ledger) = limits.last_action.get(user) {
+        if let Some(last_ledger) = RateLimitData::get_last_action(env, user) {
             if current_ledger < last_ledger + 100 {
                 return Err(Error::RateLimitExceeded);
             }
         }
-        
-        // Update rate limit in temporary storage
-        limits.last_action.set(user, &current_ledger);
-        
-        // Set TTL slightly longer than rate limit period
-        // Both threshold and extend_to set to same value for predictability
-        limits.last_action.extend_ttl(user, 110, 110);
-        
-        // Give tokens
-        let data = TokenData::new(env);
-        data.balances().update(user, |balance| {
-            balance.unwrap_or(0) + 10
-        });
 
-        // Update total supply
-        data.total_supply().update(|balance| { 
-            balance.unwrap_or(0) + 10
-        });
-        
+        // Update rate limit in temporary storage
+        RateLimitData::set_last_action(env, user, &current_ledger);
+        // Set TTL slightly longer than rate limit period
+        RateLimitData::extend_last_action_ttl(env, user, 110, 110);
+
+        // Give tokens
+        TokenData::update_balances(env, user, |balance| balance.unwrap_or(0) + 10);
+        TokenData::update_total_supply(env, |balance| balance.unwrap_or(0) + 10);
+
         Ok(())
     }
     
@@ -477,34 +396,31 @@ impl FeaturesContract {
     // ========================================================================
     
     pub fn get_balance(env: &Env, user: &Address) -> i128 {
-        TokenData::new(env).balances().get(user).unwrap_or(0)
+        TokenData::get_balances(env, user).unwrap_or(0)
     }
-    
+
     pub fn get_total_supply(env: &Env) -> i128 {
-        TokenData::new(env).total_supply().get().unwrap_or(0)
+        TokenData::get_total_supply(env).unwrap_or(0)
     }
-    
+
     pub fn get_allowance(env: &Env, from: &Address, spender: &Address) -> i128 {
-        TokenRegistry::new(env)
-            .allowances
-            .get(&(from.clone(), spender.clone()))
-            .unwrap_or(0)
+        TokenRegistry::get_allowances(env, &(from.clone(), spender.clone())).unwrap_or(0)
     }
-    
+
     pub fn is_enabled(env: &Env) -> bool {
-        Config::new(env).enabled.get().unwrap_or(false)
+        Config::get_enabled(env).unwrap_or(false)
     }
-    
+
     pub fn get_admin(env: &Env) -> Option<Address> {
-        Config::new(env).admin.get()
+        Config::get_admin(env)
     }
-    
+
     pub fn get_event(env: &Env, event_id: u64) -> Option<String> {
-        GovernanceData::new(env).events.get(&event_id)
+        GovernanceData::get_events(env, &event_id)
     }
-    
+
     pub fn get_vote_count(env: &Env) -> u64 {
-        GovernanceData::new(env).vote_count().get().unwrap_or(0)
+        GovernanceData::get_vote_count(env).unwrap_or(0)
     }
     
     // ========================================================================

@@ -409,12 +409,13 @@ fn generate_field_decl(
     }
 }
 
-/// Generate field initialization in the `new` method
-fn generate_field_init(
+/// Generate the bare storage handle construction expression for a field.
+/// Used by both `generate_field_init` (for struct construction) and
+/// `generate_static_convenience_methods` (for inline one-liners).
+fn generate_storage_handle_expr(
     field: &FinalizedField,
     module_name: &Ident,
 ) -> Result<proc_macro2::TokenStream> {
-    let name = &field.name;
     let ty = &field.ty;
     let prefix_lit = Lit::Str(LitStr::new(&field.assigned_key, field.name.span()));
 
@@ -424,11 +425,11 @@ fn generate_field_init(
         if ty.is_storage_map_type() {
             let (key_ty, val_ty, map_ident) = ty.extract_map_generics()?;
             Ok(quote! {
-                #name: <#map_ident<#key_ty, #val_ty, #module_name::#wrapper_name>>::new_raw(&env)
+                <#map_ident<#key_ty, #val_ty, #module_name::#wrapper_name>>::new_raw(&env)
             })
         } else {
             Ok(quote! {
-                #name: <#ty>::new_raw(&env,
+                <#ty>::new_raw(&env,
                     ::soroban_sdk_tools::key::StorageKey::to_key(
                         & #module_name :: #wrapper_name ::default(),
                         &env
@@ -438,9 +439,19 @@ fn generate_field_init(
         }
     } else {
         Ok(quote! {
-            #name: <#ty>::new_hashed(&env, #prefix_lit)
+            <#ty>::new_hashed(&env, #prefix_lit)
         })
     }
+}
+
+/// Generate field initialization in the `new` method
+fn generate_field_init(
+    field: &FinalizedField,
+    module_name: &Ident,
+) -> Result<proc_macro2::TokenStream> {
+    let name = &field.name;
+    let expr = generate_storage_handle_expr(field, module_name)?;
+    Ok(quote! { #name: #expr })
 }
 
 /// Generate accessor method if `auto_shorten` is enabled
@@ -513,6 +524,81 @@ fn generate_key_method(
     }
 }
 
+/// Generate static convenience methods for a single field.
+/// These are always generated regardless of `auto_shorten`, since they provide
+/// a different ergonomic benefit (one-liner access) than the accessor methods
+/// (which are only needed with `auto_shorten` to access shortened field names).
+fn generate_static_convenience_methods(
+    field: &FinalizedField,
+    module_name: &Ident,
+) -> Result<proc_macro2::TokenStream> {
+    let vis = &field.vis;
+    let name = &field.name;
+    let ty = &field.ty;
+    let init_expr = generate_storage_handle_expr(field, module_name)?;
+
+    let get_name = format_ident!("get_{}", name);
+    let set_name = format_ident!("set_{}", name);
+    let has_name = format_ident!("has_{}", name);
+    let remove_name = format_ident!("remove_{}", name);
+    let update_name = format_ident!("update_{}", name);
+    let extend_name = format_ident!("extend_{}_ttl", name);
+
+    if ty.is_storage_item_type() {
+        let val_ty = ty.extract_item_value_type()?;
+        Ok(quote! {
+            #vis fn #get_name(env: &::soroban_sdk::Env) -> Option<#val_ty> {
+                #init_expr.get()
+            }
+            #vis fn #set_name(env: &::soroban_sdk::Env, value: &#val_ty) {
+                #init_expr.set(value);
+            }
+            #vis fn #has_name(env: &::soroban_sdk::Env) -> bool {
+                #init_expr.has()
+            }
+            #vis fn #remove_name(env: &::soroban_sdk::Env) {
+                #init_expr.remove();
+            }
+            #vis fn #update_name(env: &::soroban_sdk::Env, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                #init_expr.update(f)
+            }
+            #vis fn #extend_name(env: &::soroban_sdk::Env, threshold: u32, extend_to: u32) {
+                #init_expr.extend_ttl(threshold, extend_to);
+            }
+        })
+    } else if ty.is_storage_map_type() {
+        let (key_ty, val_ty, _) = ty.extract_map_generics()?;
+        Ok(quote! {
+            #vis fn #get_name(env: &::soroban_sdk::Env, key: &#key_ty) -> Option<#val_ty> {
+                #init_expr.get(key)
+            }
+            #vis fn #set_name(env: &::soroban_sdk::Env, key: &#key_ty, value: &#val_ty) {
+                #init_expr.set(key, value);
+            }
+            #vis fn #has_name(env: &::soroban_sdk::Env, key: &#key_ty) -> bool {
+                #init_expr.has(key)
+            }
+            #vis fn #remove_name(env: &::soroban_sdk::Env, key: &#key_ty) {
+                #init_expr.remove(key);
+            }
+            #vis fn #update_name(env: &::soroban_sdk::Env, key: &#key_ty, f: impl FnOnce(Option<#val_ty>) -> #val_ty) -> #val_ty {
+                #init_expr.update(key, f)
+            }
+            #vis fn #extend_name(env: &::soroban_sdk::Env, key: &#key_ty, threshold: u32, extend_to: u32) {
+                #init_expr.extend_ttl(key, threshold, extend_to);
+            }
+        })
+    } else {
+        let type_name = ty
+            .get_type_name()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        Err(Error::new_spanned(
+            ty,
+            format!("Unsupported storage type '{type_name}' for convenience methods."),
+        ))
+    }
+}
+
 /// Generate the output items from finalized fields
 pub fn generate_items(
     item_struct: &ItemStruct,
@@ -564,6 +650,11 @@ pub fn generate_items(
         .map(|f| generate_key_method(f, struct_name, auto_shorten))
         .collect::<Result<Vec<_>>>()?;
 
+    let convenience_methods: Vec<proc_macro2::TokenStream> = finalized_fields
+        .iter()
+        .map(|f| generate_static_convenience_methods(f, &module_name))
+        .collect::<Result<Vec<_>>>()?;
+
     // Only rebuild when symbolic maps require type changes
     let needs_rebuilt = finalized_fields
         .iter()
@@ -592,6 +683,7 @@ pub fn generate_items(
             }
             #(#accessor_methods)*
             #(#key_methods)*
+            #(#convenience_methods)*
         }
     })?;
 

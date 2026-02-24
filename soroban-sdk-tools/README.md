@@ -24,10 +24,21 @@ use soroban_sdk_tools::{contractstorage, PersistentMap, InstanceItem};
 
 #[contractstorage]
 pub struct TokenStorage {
-    #[short_key("bal")]
+    #[short_key = "bal"]
     balances: PersistentMap<Address, i128>,
     admin: InstanceItem<Address>,
 }
+
+// One-liner convenience methods (generated automatically):
+// TokenStorage::get_balances(env, &addr)
+// TokenStorage::set_balances(env, &addr, &100)
+// TokenStorage::get_admin(env)
+// TokenStorage::set_admin(env, &addr)
+
+// Or use the struct for multiple operations:
+// let storage = TokenStorage::new(env);
+// storage.balances.set(&addr, &100);
+// storage.admin.set(&addr);
 ```
 
 ### Error Handling

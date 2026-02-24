@@ -76,18 +76,49 @@ pub struct Token;
 #[contractimpl]
 impl Token {
     pub fn set_balance(env: &Env, addr: &Address, amount: u64) {
-        TokenStorage::new(env).balances.set(addr, &amount);
+        TokenStorage::set_balances(env, addr, &amount);
     }
-    
+
     pub fn get_balance(env: &Env, addr: &Address) -> Option<u64> {
-        TokenStorage::new(env).balances.get(addr)
+        TokenStorage::get_balances(env, addr)
     }
 
     pub fn get_total_supply(env: &Env) -> Option<u64> {
-        TokenStorage::new(env).total_supply.get()
+        TokenStorage::get_total_supply(env)
+    }
+
+    pub fn transfer(env: &Env, from: &Address, to: &Address, amount: u64) {
+        // For multiple operations, the struct pattern avoids repeated construction
+        let storage = TokenStorage::new(env);
+        let from_bal = storage.balances.get(from).unwrap_or(0);
+        storage.balances.set(from, &(from_bal - amount));
+        storage.balances.set(to, &(storage.balances.get(to).unwrap_or(0) + amount));
     }
 }
 ```
+
+#### Static Convenience Methods
+
+The macro automatically generates static one-liner methods on the storage struct for each field. These construct the storage handle inline, so you don't need to instantiate the struct for single operations:
+
+```rust
+// One-liner convenience methods (generated automatically)
+let val = MyStorage::get_value(env);
+MyStorage::set_value(env, &42);
+MyStorage::has_value(env);
+MyStorage::remove_value(env);
+MyStorage::update_value(env, |old| old.unwrap_or(0) + 1);
+MyStorage::extend_value_ttl(env, 50, 100);
+
+// Map fields include a key parameter
+MyStorage::get_balances(env, &addr);
+MyStorage::set_balances(env, &addr, &100);
+MyStorage::update_balances(env, &addr, |old| old.unwrap_or(0) + amount);
+```
+
+The struct-based pattern (`MyStorage::new(env)`) remains available and is preferred when performing multiple operations on the same struct, since it constructs all storage handles once.
+
+#### Key Modes
 
 By default, this generates readable "DataKey-style" storage keys:
 - Map entry for `balances`: `Vec[Symbol("Balances"), Address]`

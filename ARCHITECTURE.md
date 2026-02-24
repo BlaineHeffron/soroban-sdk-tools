@@ -96,13 +96,20 @@ To facilitate streamlined declarations, the crate introduces attribute macros fo
 | \#\[derive(Default)\]\#\[contractstorage\]pub struct TokenStorage {    balances: PersistentMap\<Address, u32\>,    owner: PersistentItem\<Address\>,} |
 | :---- |
 
-The `#[contractstorage]` macro generates initialization code and accessors that interact with the ledger. Keys are derived from Rust values (e.g., strings or enum variants) and converted into compact `Symbol` or `BytesN` formats, prioritizing uniqueness and minimal byte consumption.
+The `#[contractstorage]` macro generates initialization code, accessors, and **static convenience methods** that interact with the ledger. For each field, the macro produces one-liner associated functions (e.g., `get_{field}`, `set_{field}`, `has_{field}`, `remove_{field}`, `update_{field}`, `extend_{field}_ttl`) that construct the storage handle inline. This allows single-operation access without instantiating the full struct:
+
+| MyStorage::set\_balances(\&env, \&addr, \&100); // one-liner |
+| :---- |
+
+For multi-operation scenarios, the struct pattern (`MyStorage::new(&env)`) remains available, constructing all handles once.
+
+Keys are derived from Rust values (e.g., strings or enum variants) and converted into compact `Symbol` or `BytesN` formats, prioritizing uniqueness and minimal byte consumption.
 
 The primary advancement over Loam's existing storage framework lies in key size optimization. Loam's current approach constructs prefixes combining the struct name and individual field name before appending the map's key (e.g., an address). In `soroban-sdk-tools`, users gain two configurable options for key shortening:
 
 1. **Automated Shortening via Macro**: If users are unconcerned about potential collisions from future contract extensions or upgrades, a top-level macro scans the file to aggregate all storage instances. It assigns abbreviated prefixes using the first letter of item names (assuming no cross-struct collisions), escalating to the first letter of the struct plus the first (or subsequent) letter of the item as necessary. For inherently lengthy keys (e.g., those involving address types), the macro hashes the prefix and name into a fixed 32-byte key.  
      
-2. **User-Specified Short Forms**: For greater control over uniqueness—particularly in anticipation of upgrades—users can annotate individual fields within the struct using a field-level attribute macro, such as `#[short_key("bal")]`, to specify a custom short name for that field's key. This ensures predictable and collision-resistant key generation without relying solely on automated logic.
+2. **User-Specified Short Forms**: For greater control over uniqueness—particularly in anticipation of upgrades—users can annotate individual fields within the struct using a field-level attribute macro, such as `#[short_key = "bal"]`, to specify a custom short name for that field's key. This ensures predictable and collision-resistant key generation without relying solely on automated logic.
 
 The crate builds upon Loam's SDK, re-exporting or wrapping its storage types (e.g., `PersistentMap` from `loam_soroban_sdk`) while integrating the new macros and utilities. Our `StorageKey` trait extends Loam's `LoamKey` to incorporate this optimization logic, promoting modular design and reduced on-chain resource usage.
 
@@ -152,7 +159,7 @@ The `soroban-sdk-tools` crate includes a key-generation utility module (`key.rs`
 * **Key Shortening Mechanisms**: The crate optimizes key sizes to reduce on-chain resource consumption, building on the approach defined in the storage management framework. Two options are provided:
 
   1. **Automated Shortening**: A top-level macro (e.g., `#[contractstorage]` at the crate root) scans all storage instances in the contract. It generates abbreviated prefixes using the first letter of item names if no naming conflicts exist across structs. If conflicts arise, it combines the first letter of the struct name with the first (or subsequent) letter of the item name. For long keys, such as those involving addresses, the macro hashes the prefix and name into a fixed 32-byte key.  
-  2. **User-Specified Short Forms**: Users can annotate individual fields within storage structs using a field-level attribute macro, such as `#[short_key("custom_short")]`, to specify custom short-form names for precise control over key uniqueness, particularly for contracts anticipating future upgrades. This ensures predictable and collision-resistant key generation.  
+  2. **User-Specified Short Forms**: Users can annotate individual fields within storage structs using a field-level attribute macro, such as `#[short_key = "custom_short"]`, to specify custom short-form names for precise control over key uniqueness, particularly for contracts anticipating future upgrades. This ensures predictable and collision-resistant key generation.  
 * **Namespace Prefixing**: To prevent collisions, each storage struct or map is assigned an implicit prefix derived from the contract or module name. This prefix is transparently incorporated into the key during code generation, ensuring that keys like "COUNTER" in different modules do not conflict on-chain.
 
 * **Constant Key Generation**: The crate leverages Soroban’s `symbol_short!` macro for embedding short string keys and provides utilities to hash longer identifiers into fixed-size keys at compile time, further minimizing ledger footprint.
@@ -195,9 +202,9 @@ These utilities, housed in `key.rs`, are used by both the storage and error hand
 
 The procedural macros, defined in the `soroban-sdk-tools-macro` crate (`src/contract.rs`, `src/storage.rs`, `src/error.rs`, and `src/util.rs`), provide an ergonomic interface for developers to define storage and error structures. The following macros are implemented:
 
-* **\#\[contractstorage\]**: Applied to a struct to designate its fields as storage items (e.g., `PersistentMap`, `InstanceMap`, `PersistentItem`). The macro parses field types and optional attributes (e.g., `#[short_key("shortname")]`) to generate initialization code and accessor methods. It also implements `Default` to initialize maps with keys derived from field names, incorporating the key shortening and namespacing logic from the `key.rs` module. For example:
+* **\#\[contractstorage\]**: Applied to a struct to designate its fields as storage items (e.g., `PersistentMap`, `InstanceMap`, `PersistentItem`). The macro parses field types and optional attributes (e.g., `#[short_key = "shortname"]`) to generate initialization code, accessor methods, and static convenience methods (e.g., `get_{field}`, `set_{field}`, `has_{field}`, `remove_{field}`, `update_{field}`, `extend_{field}_ttl`). It also implements `Default` to initialize maps with keys derived from field names, incorporating the key shortening and namespacing logic from the `key.rs` module. For example:
 
-| \#\[contractstorage\]pub struct TokenStorage {    \#\[short\_key("b")\]    balances: PersistentMap\<Address, u32\>,    owner: PersistentItem\<Symbol, Address\>,} |
+| \#\[contractstorage\]pub struct TokenStorage {    \#\[short\_key = "b"\]    balances: PersistentMap\<Address, u32\>,    owner: PersistentItem\<Symbol, Address\>,} |
 | :---- |
 
            This generates code to initialize the fields and interface with the Soroban ledger.

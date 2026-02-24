@@ -38,29 +38,22 @@ impl IncrementContract {
     }
 
     /// Increment increments an internal counter by `amount`, and returns the value.
+    /// Uses the one-liner static convenience method.
     #[must_use]
     pub fn increment_by(env: &Env, amount: u32) -> u32 {
-        Counter::new(env).value.update(|current| {
+        Counter::update_value(env, |current| {
             let new_value = current.unwrap_or(0).saturating_add(amount);
             log!(env, "incrementing by {}, new value: {}", amount, new_value);
             new_value
         })
     }
 
+    /// Increment a per-address counter using one-liner convenience methods.
     #[must_use]
     pub fn increment_for(env: &Env, addr: &Address) -> u32 {
-        let storage = Counter::new(env);
-        // Get the current count for the address.
-        let mut count = storage.values.get(addr).unwrap_or(0); // If no value set, assume 0.
+        let count = Counter::get_values(env, addr).unwrap_or(0) + 1;
         log!(env, "count for {}: {}", addr, count);
-
-        // Increment the count.
-        count += 1;
-
-        // Save the count.
-        storage.values.set(addr, &count);
-
-        // Return the count to the caller.
+        Counter::set_values(env, addr, &count);
         count
     }
 }
