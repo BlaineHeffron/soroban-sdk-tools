@@ -345,7 +345,7 @@ pub fn setup_mock_auth<A>(
     // Build MockAuth entries for each authorizer
     // Each authorizer gets a separate MockAuth entry for the same invocation
     let mock_auths: StdVec<_> = authorizers
-        .into_iter()
+        .iter()
         .map(|address| MockAuth {
             address,
             invoke: &invoke,

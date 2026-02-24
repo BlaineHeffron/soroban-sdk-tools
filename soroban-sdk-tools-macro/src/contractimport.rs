@@ -336,16 +336,14 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
             // Clone args for the try_invoker closure
             #(#try_arg_clones)*
 
-            // Create the invoker closure
+            // Create the invoker and try_invoker closures
             let inner = &self.inner;
             let invoker = __alloc::boxed::Box::new(move || {
                 inner.#fn_name(#(&#clone_names),*)
             });
-
-            // Create the try_invoker closure
-            let inner = &self.inner;
+            let inner2 = &self.inner;
             let try_invoker = __alloc::boxed::Box::new(move || {
-                inner.#try_fn_name(#(&#try_clone_names),*)
+                inner2.#try_fn_name(#(&#try_clone_names),*)
             });
 
             soroban_sdk_tools::auth::CallBuilder::new(
