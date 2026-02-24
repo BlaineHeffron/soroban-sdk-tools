@@ -99,7 +99,7 @@ where
 
     /// Get the storage key
     pub fn get_storage_key(&self) -> Val {
-        self.key.clone().into_val(&self.env)
+        self.key.into_val(&self.env)
     }
 
     /// Executes the passed function passing it the current value and sets the returned value to storage.

@@ -102,7 +102,7 @@ impl StorageKey for &[u8] {
 
 impl StorageKey for Bytes {
     fn to_key(&self, env: &Env) -> Val {
-        self.clone().into_val(env)
+        self.into_val(env)
     }
 
     fn to_composite_bytes(&self, _env: &Env) -> Bytes {
@@ -112,7 +112,7 @@ impl StorageKey for Bytes {
 
 impl StorageKey for BytesN<32> {
     fn to_key(&self, env: &Env) -> Val {
-        self.clone().into_val(env)
+        self.into_val(env)
     }
 
     fn to_composite_bytes(&self, env: &Env) -> Bytes {
