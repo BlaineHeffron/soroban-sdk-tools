@@ -272,7 +272,6 @@ impl SwapContract {
 
 #[cfg(test)]
 mod test {
-    extern crate std;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::xdr::{ScError, ScErrorCode};
     use soroban_sdk::{vec, Address, Env};
