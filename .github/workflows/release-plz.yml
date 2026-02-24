@@ -19,6 +19,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
 
       - name: Cache cargo registry & build
         uses: actions/cache@v4
@@ -30,13 +32,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install stellar-cli
-        run: cargo install stellar-cli --version 23.3.0 --locked
+        uses: stellar/stellar-cli@v25.1.0
+
+      - name: Install just
+        uses: taiki-e/install-action@just
 
       - name: Build contracts
-        run: |
-          for pkg in soroban-errors-external-contract soroban-errors-calc-contract soroban-errors-contract soroban-auth-vault soroban-auth-token soroban-auth-swap; do
-            stellar contract build --optimize --package "$pkg" --out-dir target/stellar --profile contract
-          done
+        run: just build
 
       - name: Run tests
         run: cargo test --workspace
