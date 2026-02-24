@@ -109,7 +109,7 @@ mod math {
 #[scerr]
 pub enum AppError {
     #[from_contract_client]
-    Math(math::MathError),  // just works
+    Math(math::MathError),
 }
 ```
 
