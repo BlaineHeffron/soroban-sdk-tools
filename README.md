@@ -6,17 +6,27 @@
 
 Proc macros and utilities for [soroban-sdk](https://crates.io/crates/soroban-sdk) that replace the repetitive parts of storage, error definitions, and auth test setup.
 
+- [Getting started](#getting-started)
+- [Storage](#storage)
+- [Error handling](#error-handling)
+- [Contract imports](#contract-imports)
+- [Auth testing](#auth-testing)
+- [Examples](#examples)
+
 ## Getting started
 
-Add to your contract's `Cargo.toml`:
+```sh
+cargo add soroban-sdk-tools
+cargo add soroban-sdk-tools --dev --features testutils
+```
+
+Or add to your contract's `Cargo.toml` directly:
 
 ```toml
 [dependencies]
-soroban-sdk = "25.0.2"
 soroban-sdk-tools = "0.1"
 
 [dev-dependencies]
-soroban-sdk = { version = "25.0.2", features = ["testutils"] }
 soroban-sdk-tools = { version = "0.1", features = ["testutils"] }
 ```
 
