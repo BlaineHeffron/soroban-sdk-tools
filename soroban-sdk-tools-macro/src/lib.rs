@@ -40,7 +40,7 @@ mod util;
 /// ```ignore
 /// #[contractstorage(auto_shorten = true)]
 /// pub struct MyStorage {
-///     #[short_key("bal")]
+///     #[short_key = "bal"]
 ///     balances: PersistentMap<Address, i128>,
 ///     owner: PersistentItem<Address>,
 /// }

@@ -24,7 +24,7 @@ use soroban_sdk_tools::{contractstorage, PersistentMap, InstanceItem};
 
 #[contractstorage]
 pub struct TokenStorage {
-    #[short_key("bal")]
+    #[short_key = "bal"]
     balances: PersistentMap<Address, i128>,
     admin: InstanceItem<Address>,
 }
