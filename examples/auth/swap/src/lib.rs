@@ -273,9 +273,9 @@ impl SwapContract {
 #[cfg(test)]
 mod test {
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::xdr::{ScError, ScErrorCode};
     use soroban_sdk::{vec, Address, Env};
 
-    // Import this contract's WASM to get AuthClient
     mod swap {
         soroban_sdk_tools::contractimport!(file = "../../../target/stellar/soroban_auth_swap.wasm");
     }
@@ -283,68 +283,77 @@ mod test {
     /// Demonstrates two-party atomic swap authorization.
     ///
     /// BOTH Alice AND Bob must authorize for the swap to proceed.
-    /// setup_mock_auth handles setting up auth for multiple parties.
+    /// Without authorization the call fails; auth is not sticky across calls.
     #[test]
-    fn test_atomic_swap_with_multi_auth() {
-        let env = Env::default();
-        let contract_id = env.register(swap::WASM, ());
-        let client = swap::Client::new(&env, &contract_id);
+    fn test_atomic_swap() {
+        let env = &Env::default();
+        let contract_id = &env.register(swap::WASM, ());
+        let client = swap::AuthClient::new(env, contract_id);
 
-        let alice = Address::generate(&env);
-        let bob = Address::generate(&env);
+        let alice = &Address::generate(env);
+        let bob = &Address::generate(env);
 
-        // Multi-party auth: both Alice AND Bob must authorize
-        soroban_sdk_tools::auth::setup_mock_auth(
-            &env,
-            &contract_id,
-            "atomic_swap",
-            (alice.clone(), 100_i128, bob.clone(), 200_i128),
-            &[alice.clone(), bob.clone()], // Both parties authorize
-        );
+        // Without auth -> fails
+        let error: ScError = client
+            .atomic_swap(alice, &100, bob, &200)
+            .try_invoke()
+            .unwrap_err()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(error, ScError::Context(ScErrorCode::InvalidAction));
 
-        client.atomic_swap(&alice, &100, &bob, &200);
+        // With auth -> succeeds
+        client
+            .atomic_swap(alice, &100, bob, &200)
+            .authorize_all(&[alice, bob])
+            .invoke();
+
+        // Auth is not sticky — next call without auth fails again
+        let error: ScError = client
+            .atomic_swap(alice, &100, bob, &200)
+            .try_invoke()
+            .unwrap_err()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(error, ScError::Context(ScErrorCode::InvalidAction));
     }
 
     /// Demonstrates three-party swap authorization.
     ///
     /// ALL THREE parties must authorize for the swap to proceed.
     #[test]
-    fn test_three_way_swap_with_multi_auth() {
-        let env = Env::default();
-        let contract_id = env.register(swap::WASM, ());
-        let client = swap::Client::new(&env, &contract_id);
+    fn test_three_way_swap() {
+        let env = &Env::default();
+        let contract_id = &env.register(swap::WASM, ());
+        let client = swap::AuthClient::new(env, contract_id);
 
-        let party_a = Address::generate(&env);
-        let party_b = Address::generate(&env);
-        let party_c = Address::generate(&env);
+        let a = &Address::generate(env);
+        let b = &Address::generate(env);
+        let c = &Address::generate(env);
 
-        // Three-party auth: all three must authorize
-        soroban_sdk_tools::auth::setup_mock_auth(
-            &env,
-            &contract_id,
-            "three_way_swap",
-            (party_a.clone(), party_b.clone(), party_c.clone(), 100_i128),
-            &[party_a.clone(), party_b.clone(), party_c.clone()],
-        );
-
-        client.three_way_swap(&party_a, &party_b, &party_c, &100);
+        client
+            .three_way_swap(a, b, c, &100)
+            .authorize_all(&[a, b, c])
+            .invoke();
     }
 
     /// Demonstrates N-party batch swap authorization.
     ///
     /// Every party in the batch must authorize.
     #[test]
-    fn test_batch_swap_with_multi_auth() {
-        let env = Env::default();
-        let contract_id = env.register(swap::WASM, ());
-        let client = swap::Client::new(&env, &contract_id);
+    fn test_batch_swap() {
+        let env = &Env::default();
+        let contract_id = &env.register(swap::WASM, ());
+        let client = swap::AuthClient::new(env, contract_id);
 
-        let alice = Address::generate(&env);
-        let bob = Address::generate(&env);
-        let charlie = Address::generate(&env);
+        let alice = &Address::generate(env);
+        let bob = &Address::generate(env);
+        let charlie = &Address::generate(env);
 
         let parties = vec![
-            &env,
+            env,
             swap::SwapParty {
                 address: alice.clone(),
                 offer_amount: 100,
@@ -362,16 +371,10 @@ mod test {
             },
         ];
 
-        // N-party auth: all parties must authorize
-        soroban_sdk_tools::auth::setup_mock_auth(
-            &env,
-            &contract_id,
-            "batch_swap",
-            (parties.clone(),),
-            &[alice, bob, charlie], // All three parties authorize
-        );
-
-        client.batch_swap(&parties);
+        client
+            .batch_swap(&parties)
+            .authorize_all(&[alice, bob, charlie])
+            .invoke();
     }
 
     /// Demonstrates escrow flow with sequential single-party auth.
@@ -379,34 +382,34 @@ mod test {
     /// First the initiator authorizes to create the escrow,
     /// then the counterparty authorizes to complete it.
     #[test]
-    fn test_escrow_flow_with_auth_client() {
-        let env = Env::default();
-        let contract_id = env.register(swap::WASM, ());
-        let client = swap::Client::new(&env, &contract_id);
+    fn test_escrow_flow() {
+        let env = &Env::default();
+        let contract_id = &env.register(swap::WASM, ());
+        let client = swap::AuthClient::new(env, contract_id);
 
-        let initiator = Address::generate(&env);
-        let counterparty = Address::generate(&env);
+        let initiator = &Address::generate(env);
+        let counterparty = &Address::generate(env);
 
-        // Step 1: Initiator creates escrow using AuthClient
-        let swap_id = swap::AuthClient::new(&env, &contract_id)
-            .create_escrow(&initiator, &counterparty, &100, &200, &1000)
-            .authorize(&initiator)
+        // Step 1: Initiator creates escrow
+        let swap_id = client
+            .create_escrow(initiator, counterparty, &100, &200, &1000)
+            .authorize(initiator)
             .invoke();
 
         // Verify pending swap
-        let pending = client.get_pending_swap(&swap_id);
-        assert_eq!(pending.initiator, initiator);
-        assert_eq!(pending.counterparty, counterparty);
+        let pending = client.get_pending_swap(&swap_id).invoke();
+        assert_eq!(&pending.initiator, initiator);
+        assert_eq!(&pending.counterparty, counterparty);
         assert!(!pending.completed);
 
-        // Step 2: Counterparty completes escrow using AuthClient
-        swap::AuthClient::new(&env, &contract_id)
+        // Step 2: Counterparty completes escrow
+        client
             .complete_escrow(&swap_id)
-            .authorize(&counterparty)
+            .authorize(counterparty)
             .invoke();
 
         // Verify completed
-        let completed = client.get_pending_swap(&swap_id);
+        let completed = client.get_pending_swap(&swap_id).invoke();
         assert!(completed.completed);
     }
 }

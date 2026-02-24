@@ -12,8 +12,8 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
-use std::fs;
 use soroban_spec_rust::types::generate_type_ident;
+use std::fs;
 use stellar_xdr::curr::{ScSpecEntry, ScSpecTypeDef};
 use syn::Error;
 
@@ -59,11 +59,6 @@ fn extract_error_enums(specs: &[ScSpecEntry]) -> Vec<ErrorEnumInfo> {
         })
         .collect()
 }
-
-/// Generate `ErrorSpecEntry` tokens for a list of variants.
-///
-/// Uses 1-based sequential codes (matching variant position) rather than
-/// native error codes, consistent with `#[scerr]` basic mode.
 
 // -----------------------------------------------------------------------------
 // Function Extraction (for AuthClient generation)
@@ -117,6 +112,40 @@ fn unwrap_result_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
     }
 }
 
+/// Generate the try return type for a function, matching soroban-sdk's try_ method convention.
+///
+/// The return type follows the pattern:
+/// ```text
+/// Result<
+///     Result<T, <T as TryFromVal<Env, Val>>::Error>,
+///     Result<E, soroban_sdk::InvokeError>
+/// >
+/// ```
+fn generate_try_return_type(outputs: &[ScSpecTypeDef]) -> proc_macro2::TokenStream {
+    let (ok_ty, err_ty) = if outputs.is_empty() {
+        (quote! { () }, quote! { soroban_sdk::Error })
+    } else {
+        match &outputs[0] {
+            ScSpecTypeDef::Result(inner) => {
+                let ok = generate_type_ident(&inner.ok_type);
+                let err = generate_type_ident(&inner.error_type);
+                (quote! { #ok }, quote! { #err })
+            }
+            other => {
+                let ty = generate_type_ident(other);
+                (quote! { #ty }, quote! { soroban_sdk::Error })
+            }
+        }
+    };
+
+    quote! {
+        Result<
+            Result<#ok_ty, <#ok_ty as soroban_sdk::TryFromVal<soroban_sdk::Env, soroban_sdk::Val>>::Error>,
+            Result<#err_ty, soroban_sdk::InvokeError>
+        >
+    }
+}
+
 /// Generate the expression to pass an argument to mock_auth.
 ///
 /// This handles the different ownership semantics for various types:
@@ -149,11 +178,14 @@ fn generate_arg_expr(
 
 /// Generate the AuthClient struct and implementation.
 fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream {
-    // Generate wrapper methods for each function
-    let methods: Vec<_> = functions.iter().map(generate_auth_client_method).collect();
+    // Filter out special functions that aren't regular client methods
+    let methods = functions
+        .iter()
+        .filter(|f| !f.name.starts_with("__"))
+        .map(generate_auth_client_method);
 
     quote! {
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(not(target_family = "wasm"))]
         extern crate alloc as __alloc;
 
         /// Auth-testing wrapper client for simplified authorization testing.
@@ -176,12 +208,12 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
         ///     .authorize(&signer2)
         ///     .invoke();
         /// ```
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(not(target_family = "wasm"))]
         pub struct AuthClient<'a> {
             inner: Client<'a>,
         }
 
-        #[cfg(any(test, feature = "testutils"))]
+        #[cfg(not(target_family = "wasm"))]
         impl<'a> AuthClient<'a> {
             /// Create a new AuthClient wrapping a contract at the given address.
             pub fn new(env: &'a soroban_sdk::Env, address: &'a soroban_sdk::Address) -> Self {
@@ -213,40 +245,46 @@ fn generate_auth_client(functions: &[FunctionInfo]) -> proc_macro2::TokenStream 
 /// Generate a wrapper method for AuthClient that returns a CallBuilder.
 fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream {
     let fn_name = format_ident!("{}", func.name);
+    let try_fn_name = format_ident!("try_{}", func.name);
     let fn_name_str = &func.name;
     let doc = &func.doc;
 
     // Generate parameter list with explicit lifetime
-    let params: Vec<_> = func
-        .inputs
-        .iter()
-        .map(|input| {
-            let name = format_ident!("{}", input.name);
-            let ty = generate_type_ident(&input.type_def);
-            quote! { #name: &'b #ty }
-        })
-        .collect();
+    let params = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let ty = generate_type_ident(&input.type_def);
+        quote! { #name: &'b #ty }
+    });
 
     // Generate argument names for the inner call (cloned for the closure)
-    let arg_clones: Vec<_> = func
-        .inputs
-        .iter()
-        .map(|input| {
-            let name = format_ident!("{}", input.name);
-            let clone_name = format_ident!("{}_clone", input.name);
-            generate_clone_stmt(&name, &clone_name, &input.type_def)
-        })
-        .collect();
+    let arg_clones = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let clone_name = format_ident!("{}_clone", input.name);
+        generate_clone_stmt(&name, &clone_name, &input.type_def)
+    });
+
+    // Generate a second set of clones for the try_invoker closure
+    let try_arg_clones = func.inputs.iter().map(|input| {
+        let name = format_ident!("{}", input.name);
+        let clone_name = format_ident!("{}_try_clone", input.name);
+        generate_clone_stmt(&name, &clone_name, &input.type_def)
+    });
 
     // Generate the cloned argument names for the closure call
-    let clone_names: Vec<_> = func
+    let clone_names = func
         .inputs
         .iter()
-        .map(|input| format_ident!("{}_clone", input.name))
-        .collect();
+        .map(|input| format_ident!("{}_clone", input.name));
+
+    // Generate the try-cloned argument names for the try_invoker closure
+    let try_clone_names = func
+        .inputs
+        .iter()
+        .map(|input| format_ident!("{}_try_clone", input.name));
 
     // Generate args tuple for mock auth
     // Note: Single-element tuples need a trailing comma: (a,) not (a)
+    // Collected because we need .len() and indexed access for the tuple expression
     let args_tuple: Vec<_> = func
         .inputs
         .iter()
@@ -274,13 +312,16 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
     } else if func.outputs.len() == 1 {
         unwrap_result_type(&func.outputs[0])
     } else {
-        let types: Vec<_> = func.outputs.iter().map(unwrap_result_type).collect();
+        let types = func.outputs.iter().map(unwrap_result_type);
         quote! { (#(#types),*) }
     };
 
+    // Generate try return type matching soroban-sdk's try_ method convention
+    let try_return_ty = generate_try_return_type(&func.outputs);
+
     quote! {
         #[doc = #doc]
-        pub fn #fn_name<'b>(&'b self, #(#params),*) -> soroban_sdk_tools::auth::CallBuilder<'b, #return_ty>
+        pub fn #fn_name<'b>(&'b self, #(#params),*) -> soroban_sdk_tools::auth::CallBuilder<'b, #return_ty, #try_return_ty>
         where
             'a: 'b,
         {
@@ -289,13 +330,20 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
             // Convert args to Vec<Val> for mock auth
             let args: soroban_sdk::Vec<soroban_sdk::Val> = #args_tuple_expr.into_val(&self.inner.env);
 
-            // Clone args for the closure (closure needs owned values)
+            // Clone args for the invoker closure
             #(#arg_clones)*
 
-            // Create the invoker closure
+            // Clone args for the try_invoker closure
+            #(#try_arg_clones)*
+
+            // Create the invoker and try_invoker closures
             let inner = &self.inner;
             let invoker = __alloc::boxed::Box::new(move || {
                 inner.#fn_name(#(&#clone_names),*)
+            });
+            let inner2 = &self.inner;
+            let try_invoker = __alloc::boxed::Box::new(move || {
+                inner2.#try_fn_name(#(&#try_clone_names),*)
             });
 
             soroban_sdk_tools::auth::CallBuilder::new(
@@ -304,6 +352,7 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
                 #fn_name_str,
                 args,
                 invoker,
+                Some(try_invoker),
             )
         }
     }
@@ -333,29 +382,22 @@ fn generate_clone_stmt(
     }
 }
 
-// Note: try_ methods are not generated for AuthClient.
-// Users can access them via `client.inner().try_method_name()` if needed.
-// This avoids complex generic signature generation that depends on the specific
-// error types defined in the contract.
-
 // -----------------------------------------------------------------------------
 // Error Spec Generation
 // -----------------------------------------------------------------------------
-fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let code = (idx + 1) as u32;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::ErrorSpecEntry {
-                    code: #code, name: #name, description: #doc,
-                }
+fn generate_spec_entries(
+    variants: &[ErrorVariantInfo],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + '_ {
+    variants.iter().enumerate().map(|(idx, v)| {
+        let code = (idx + 1) as u32;
+        let name = &v.name;
+        let doc = &v.doc;
+        quote! {
+            soroban_sdk_tools::error::ErrorSpecEntry {
+                code: #code, name: #name, description: #doc,
             }
-        })
-        .collect()
+        }
+    })
 }
 
 /// Generate `SpecNode` leaf tokens for a list of variants.
@@ -363,22 +405,20 @@ fn generate_spec_entries(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::Toke
 /// Uses 1-based sequential codes (matching variant position) rather than
 /// native error codes, so that the XDR builder produces correct flattened
 /// codes when this type is wrapped by an outer `#[scerr]` enum.
-fn generate_tree_nodes(variants: &[ErrorVariantInfo]) -> Vec<proc_macro2::TokenStream> {
-    variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let code = (idx + 1) as u32;
-            let name = &v.name;
-            let doc = &v.doc;
-            quote! {
-                soroban_sdk_tools::error::SpecNode {
-                    code: #code, name: #name, description: #doc,
-                    children: &[],
-                }
+fn generate_tree_nodes(
+    variants: &[ErrorVariantInfo],
+) -> impl Iterator<Item = proc_macro2::TokenStream> + '_ {
+    variants.iter().enumerate().map(|(idx, v)| {
+        let code = (idx + 1) as u32;
+        let name = &v.name;
+        let doc = &v.doc;
+        quote! {
+            soroban_sdk_tools::error::SpecNode {
+                code: #code, name: #name, description: #doc,
+                children: &[],
             }
-        })
-        .collect()
+        }
+    })
 }
 
 /// Generate the `__SCERR_SPEC_{TypeName}` const for an error enum.
@@ -425,27 +465,17 @@ fn generate_error_spec_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
 fn generate_sequential_error_impl(info: &ErrorEnumInfo) -> proc_macro2::TokenStream {
     let type_name = format_ident!("{}", info.name);
 
-    let to_seq_arms: Vec<_> = info
-        .variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let variant_ident = format_ident!("{}", v.name);
-            let idx = idx as u32;
-            quote! { #type_name::#variant_ident => #idx }
-        })
-        .collect();
+    let to_seq_arms = info.variants.iter().enumerate().map(|(idx, v)| {
+        let variant_ident = format_ident!("{}", v.name);
+        let idx = idx as u32;
+        quote! { #type_name::#variant_ident => #idx }
+    });
 
-    let from_seq_arms: Vec<_> = info
-        .variants
-        .iter()
-        .enumerate()
-        .map(|(idx, v)| {
-            let variant_ident = format_ident!("{}", v.name);
-            let idx = idx as u32;
-            quote! { #idx => Some(#type_name::#variant_ident) }
-        })
-        .collect();
+    let from_seq_arms = info.variants.iter().enumerate().map(|(idx, v)| {
+        let variant_ident = format_ident!("{}", v.name);
+        let idx = idx as u32;
+        quote! { #idx => Some(#type_name::#variant_ident) }
+    });
 
     quote! {
         impl soroban_sdk_tools::error::SequentialError for #type_name {
@@ -549,12 +579,9 @@ pub fn contractimport_impl(attr: TokenStream) -> TokenStream {
         };
 
     // Generate spec consts, ContractErrorSpec, and SequentialError impls for each error enum
-    let spec_consts: Vec<_> = error_enums.iter().map(generate_spec_const).collect();
-    let spec_impls: Vec<_> = error_enums.iter().map(generate_error_spec_impl).collect();
-    let seq_impls: Vec<_> = error_enums
-        .iter()
-        .map(generate_sequential_error_impl)
-        .collect();
+    let spec_consts = error_enums.iter().map(generate_spec_const);
+    let spec_impls = error_enums.iter().map(generate_error_spec_impl);
+    let seq_impls = error_enums.iter().map(generate_sequential_error_impl);
 
     // Generate AuthClient for simplified auth testing
     let auth_client = generate_auth_client(&functions);

@@ -47,5 +47,10 @@ fn external_panic_error() {
     let external_contract_id = &env.register(external::WASM, ());
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(env, &contract_id);
-    assert_eq!(client.try_error_panic(external_contract_id), Ok(Ok(10)));
+    assert_eq!(
+        client.try_error_panic(external_contract_id),
+        Err(Ok(crate::Error::Math(
+            external::MathError::Calc_DivisionByZero
+        )))
+    );
 }

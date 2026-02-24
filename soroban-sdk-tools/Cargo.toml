@@ -15,6 +15,10 @@ crate-type = ["rlib"]
 [dependencies]
 soroban-sdk = { workspace = true }
 soroban-sdk-tools-macro = { workspace = true }
+ed25519-dalek = { version = "2", features = ["rand_core"], optional = true }
+k256 = { version = "0.13", features = ["ecdsa"], optional = true }
+p256 = { version = "0.13", features = ["ecdsa"], optional = true }
+rand = { version = "0.8", optional = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
@@ -23,4 +27,10 @@ soroban-sdk-tools = { path = ".", features = ["testutils"] }
 [features]
 default = []
 std = []  # Enable for proc macro usage where std is available
-testutils = ["soroban-sdk/testutils"]
+testutils = [
+    "soroban-sdk/testutils",
+    "dep:ed25519-dalek",
+    "dep:k256",
+    "dep:p256",
+    "dep:rand",
+]
