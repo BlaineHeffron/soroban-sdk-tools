@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.1...soroban-sdk-tools-v0.1.2) - 2026-02-24
+
+### Other
+
+- rewrite README for clarity, fix docs.rs and crates.io setup ([#28](https://github.com/BlaineHeffron/soroban-sdk-tools/pull/28))
+- Merge pull request #26 from BlaineHeffron/remove-unnecessary-clones
+- remove unnecessary clones before into_val calls
+
 ## [0.1.1](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.0...soroban-sdk-tools-v0.1.1) - 2026-02-24
 
 ### Added
