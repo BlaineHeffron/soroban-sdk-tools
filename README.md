@@ -10,7 +10,7 @@ Proc macros and utilities for [soroban-sdk](https://crates.io/crates/soroban-sdk
 - [Storage](#storage)
 - [Error handling](#error-handling)
 - [Contract imports](#contract-imports)
-- [Auth testing](#auth-testing)
+- [AuthClient](#authclient)
 - [Examples](#examples)
 
 ## Getting started
@@ -123,33 +123,49 @@ pub enum AppError {
 }
 ```
 
-## Auth testing
+## AuthClient
 
-With `testutils` enabled you get helpers for mock and real-signature auth:
+`contractimport!` generates an `AuthClient` alongside the normal `Client`. It saves you from hand-building auth entries in tests. Call a method, chain `.authorize()` or `.sign()`, then `.invoke()`:
 
 ```rust
-use soroban_sdk_tools::{setup_mock_auth, setup_real_auth, Secp256r1Keypair};
+mod my_contract {
+    soroban_sdk_tools::contractimport!(
+        file = "../target/wasm32v1-none/release/my_contract.wasm"
+    );
+}
 
-// Skip the crypto, just test your logic
-setup_mock_auth(&env, &[&user], &client.address);
-client.deposit(&user, &100);
+#[test]
+fn test_mock_auth() {
+    let env = Env::default();
+    let contract_id = env.register(my_contract::WASM, ());
+    let client = my_contract::AuthClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
 
-// Or actually sign the payload with a real passkey
-let kp = Secp256r1Keypair::generate();
-let signer = setup_real_auth(&env, &kp);
-client.deposit(&signer, &100);
+    // method -> authorize -> invoke
+    client.deposit(&user, &100).authorize(&user).invoke();
+}
+
+#[test]
+fn test_real_auth() {
+    let env = Env::default();
+    let contract_id = env.register(my_contract::WASM, ());
+    let client = my_contract::AuthClient::new(&env, &contract_id);
+
+    let alice = Keypair::random(&env);
+    client.transfer(alice.address(), &bob, &300).sign(&alice).invoke();
+}
 ```
 
-Supports `ed25519`, `secp256k1`, and `secp256r1`. Details in the [auth docs](https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/auth/).
+Chain multiple authorizers when you need them: `.authorize(&signer1).authorize(&signer2).invoke()`. Supports `ed25519`, `secp256k1`, and `secp256r1`. See the [auth docs](https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/auth/).
 
 ## Examples
 
-Working contracts in [`examples/`](examples/) you can build and test:
+Working contracts in [`examples/`](https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples) you can build and test:
 
-- [`increment`](examples/increment/) - storage with struct and one-liner patterns
-- [`errors/`](examples/errors/) - composable errors across contracts
-- [`auth/`](examples/auth/) - token, vault, and atomic swap with auth testing
-- [`features/`](examples/features/) - feature-gated storage
+- [`increment`](https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/increment) - storage with struct and one-liner patterns
+- [`errors/`](https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/errors) - composable errors across contracts
+- [`auth/`](https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/auth) - token, vault, and atomic swap with auth testing
+- [`features/`](https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/features) - feature-gated storage
 
 ## License
 
