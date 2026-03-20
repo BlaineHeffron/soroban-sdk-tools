@@ -9,6 +9,7 @@ path:
 
 # build contracts
 build:
+    just _build soroban-features-contract
     just _build soroban-errors-calc-contract
     just _build soroban-errors-external-contract
     just _build soroban-errors-contract

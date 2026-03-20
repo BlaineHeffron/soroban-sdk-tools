@@ -147,6 +147,7 @@ pub struct CallBuilder<'a, R, TryR = ()> {
     signers: StdVec<&'a dyn Signer>,
     invoker: Box<dyn FnOnce() -> R + 'a>,
     try_invoker: Option<Box<dyn FnOnce() -> TryR + 'a>>,
+    sub_invokes: StdVec<MockAuthInvoke<'a>>,
 }
 
 impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
@@ -170,6 +171,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
             signers: StdVec::new(),
             invoker,
             try_invoker,
+            sub_invokes: StdVec::new(),
         }
     }
 
@@ -225,14 +227,16 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
         self
     }
 
-    fn run_auth_setup(
-        env: &Env,
-        contract: &Address,
-        fn_name: &str,
-        args: Vec<Val>,
-        signers: &[&dyn Signer],
-        authorizers: &[&Address],
-    ) {
+    fn run_auth_setup(&self) {
+        let Self {
+            env,
+            contract,
+            fn_name,
+            args,
+            authorizers,
+            signers,
+            ..
+        } = &self;
         if !signers.is_empty() && !authorizers.is_empty() {
             panic!("cannot mix .sign() and .authorize() on the same CallBuilder");
         }
@@ -240,7 +244,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
         if !signers.is_empty() {
             setup_real_auth(env, contract, fn_name, args, signers);
         } else {
-            setup_mock_auth(env, contract, fn_name, args, authorizers);
+            setup_mock_auth(env, authorizers, self.mock_auth_invocation());
         }
     }
 
@@ -250,14 +254,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// If authorizers are configured, uses mock auth.
     /// Panics if both are configured.
     pub fn invoke(self) -> R {
-        Self::run_auth_setup(
-            self.env,
-            self.contract,
-            self.fn_name,
-            self.args,
-            &self.signers,
-            &self.authorizers,
-        );
+        self.run_auth_setup();
         (self.invoker)()
     }
 
@@ -271,19 +268,40 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// Panics if no try invoker was provided (i.e. the `CallBuilder` was not
     /// constructed by a generated `AuthClient` method).
     pub fn try_invoke(self) -> TryR {
-        Self::run_auth_setup(
-            self.env,
-            self.contract,
-            self.fn_name,
-            self.args,
-            &self.signers,
-            &self.authorizers,
-        );
+        self.run_auth_setup();
         let try_invoker = self
             .try_invoker
             .expect("try_invoker not set; use try_invoke through AuthClient methods");
         (try_invoker)()
     }
+
+    pub fn add_sub_invoke<B: AsMockAuthInvoke<'a>>(mut self, builder: &'a B) -> Self {
+        self.sub_invokes.push(builder.mock_auth_invocation());
+        self
+    }
+}
+
+impl<'a, R, TryR> AsMockAuthInvoke<'a> for CallBuilder<'a, R, TryR> {
+    fn mock_auth_invocation(&self) -> MockAuthInvoke {
+        let Self {
+            contract,
+            fn_name,
+            args,
+            sub_invokes,
+            ..
+        } = &self;
+        let args = args.into_val(self.env);
+        MockAuthInvoke {
+            contract,
+            fn_name,
+            args,
+            sub_invokes,
+        }
+    }
+}
+
+pub trait AsMockAuthInvoke<'a> {
+    fn mock_auth_invocation(&'a self) -> MockAuthInvoke<'a>;
 }
 
 // ===========================================================================
@@ -315,32 +333,13 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
 ///     &[from.clone()],
 /// );
 /// ```
-pub fn setup_mock_auth<A>(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: A,
-    authorizers: &[&Address],
-) where
-    A: IntoVal<Env, Vec<Val>>,
-{
+pub fn setup_mock_auth<'a>(env: &Env, authorizers: &[&Address], invoke: MockAuthInvoke<'a>) {
     // If no authorizers specified, clear any prior mock auth state
     // (e.g. mock_all_auths) so calls run with no authorization.
     if authorizers.is_empty() {
         env.mock_auths(&[]);
         return;
     }
-
-    // Convert args to Vec<Val>
-    let args_val: Vec<Val> = args.into_val(env);
-
-    // Create the shared MockAuthInvoke that all authorizers will reference
-    let invoke = MockAuthInvoke {
-        contract,
-        fn_name,
-        args: args_val,
-        sub_invokes: &[],
-    };
 
     // Build MockAuth entries for each authorizer
     // Each authorizer gets a separate MockAuth entry for the same invocation
