@@ -24,49 +24,49 @@ std::thread_local! {
     static NONCE_COUNTER: Cell<i64> = const { Cell::new(0) };
 }
 
-/// Build and register real (cryptographically signed) authorization entries.
-///
-/// For each signer, this constructs a `SorobanAuthorizationEntry` with
-/// proper `SorobanCredentials::Address` containing a real signature over the
-/// authorization payload hash.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban environment
-/// * `contract` - The contract address being called
-/// * `fn_name` - The function name being invoked
-/// * `args` - The function arguments
-/// * `signers` - The signers that will authorize this invocation
-pub fn setup_real_auth<A>(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: A,
-    signers: &[&dyn Signer],
-) where
-    A: IntoVal<Env, Vec<Val>>,
-{
-    if signers.is_empty() {
-        return;
-    }
-
-    let args_val: Vec<Val> = args.into_val(env);
-    // Convert soroban_sdk::Vec<Val> to xdr vec of ScVal
+/// Convert a [`MockAuthInvoke`] tree into a [`SorobanAuthorizedInvocation`]
+/// XDR structure, recursively converting all sub-invocations.
+fn mock_invoke_to_xdr(env: &Env, invoke: &MockAuthInvoke) -> SorobanAuthorizedInvocation {
     let mut xdr_args: StdVec<ScVal> = StdVec::new();
-    for i in 0..args_val.len() {
-        let val: Val = args_val.get(i).unwrap();
+    for i in 0..invoke.args.len() {
+        let val: Val = invoke.args.get(i).unwrap();
         let sc_val = ScVal::try_from_val(env, &val).unwrap();
         xdr_args.push(sc_val);
     }
 
-    let root_invocation = SorobanAuthorizedInvocation {
+    let sub_invocations: StdVec<SorobanAuthorizedInvocation> = invoke
+        .sub_invokes
+        .iter()
+        .map(|sub| mock_invoke_to_xdr(env, sub))
+        .collect();
+
+    SorobanAuthorizedInvocation {
         function: SorobanAuthorizedFunction::ContractFn(InvokeContractArgs {
-            contract_address: ScAddress::from(contract),
-            function_name: ScSymbol(fn_name.try_into().unwrap()),
+            contract_address: ScAddress::from(invoke.contract),
+            function_name: ScSymbol(invoke.fn_name.try_into().unwrap()),
             args: xdr_args.try_into().unwrap(),
         }),
-        sub_invocations: Default::default(),
-    };
+        sub_invocations: sub_invocations.try_into().unwrap(),
+    }
+}
+
+/// Build and register real (cryptographically signed) authorization entries.
+///
+/// For each signer, this constructs a `SorobanAuthorizationEntry` with
+/// proper `SorobanCredentials::Address` containing a real signature over the
+/// authorization payload hash, including any nested sub-invocations.
+///
+/// # Arguments
+///
+/// * `env` - The Soroban environment
+/// * `signers` - The signers that will authorize this invocation
+/// * `invoke` - The invocation tree (root + sub-invocations) to sign
+pub fn setup_real_auth<'a>(env: &Env, signers: &[&dyn Signer], invoke: MockAuthInvoke<'a>) {
+    if signers.is_empty() {
+        return;
+    }
+
+    let root_invocation = mock_invoke_to_xdr(env, &invoke);
 
     let curr_ledger = env.ledger().sequence();
     let max_ttl = env.storage().max_ttl();
@@ -90,7 +90,6 @@ pub fn setup_real_auth<A>(
             invocation: root_invocation.clone(),
         });
 
-        // Serialize and hash the preimage
         let mut buf = StdVec::<u8>::new();
         preimage
             .write_xdr(&mut Limited::new(&mut buf, Limits::none()))
@@ -228,23 +227,14 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     }
 
     fn run_auth_setup(&self) {
-        let Self {
-            env,
-            contract,
-            fn_name,
-            args,
-            authorizers,
-            signers,
-            ..
-        } = &self;
-        if !signers.is_empty() && !authorizers.is_empty() {
+        if !self.signers.is_empty() && !self.authorizers.is_empty() {
             panic!("cannot mix .sign() and .authorize() on the same CallBuilder");
         }
 
-        if !signers.is_empty() {
-            setup_real_auth(env, contract, fn_name, args, signers);
+        if !self.signers.is_empty() {
+            setup_real_auth(self.env, &self.signers, self.mock_auth_invocation());
         } else {
-            setup_mock_auth(env, authorizers, self.mock_auth_invocation());
+            setup_mock_auth(self.env, &self.authorizers, self.mock_auth_invocation());
         }
     }
 
