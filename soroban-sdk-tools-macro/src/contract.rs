@@ -2,17 +2,38 @@
 //!
 //! This macro generates a two-trait structure from a single trait definition:
 //!
-//! - **Inner trait** (`{Trait}Impl`): Pure business logic that developers implement
-//! - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Impl` for DI
+//! - **Internal trait** (`{Trait}Internal`): Pure business logic that developers implement
+//! - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Provider` for DI
 //!
 //! Methods annotated with `#[auth(Self::method)]` get structural auth enforcement:
 //! the generated outer trait's default method calls `require_auth()` on the
 //! resolved address before delegating to the inner implementation.
 //!
-//! Additionally generates `{Trait}AuthClient` for simplified auth testing.
+//! Additionally generates:
+//! - `{Trait}AuthClient` for simplified auth testing
+//! - `impl_{trait_snake}!` helper macro for sealed (non-overridable) auth wiring
+//!
+//! # Security Model
+//!
+//! ## What is structurally enforced
+//! - When using `impl_{trait_snake}!`, auth methods are generated as direct
+//!   `#[contractimpl]` methods, NOT as trait defaults. They cannot be overridden.
+//! - The `{Trait}Internal` trait has no auth logic, so implementing it cannot
+//!   accidentally bypass auth checks.
+//!
+//! ## What is convention-based (not enforced)
+//! - When using `#[contractimpl(contracttrait)]` directly, a developer CAN
+//!   override the outer trait's default methods, potentially bypassing auth.
+//! - A developer can call `{Trait}Internal` methods directly from any
+//!   `#[contractimpl]` block, bypassing the auth wrapper.
+//! - Storage key isolation between composed traits depends on using
+//!   `#[contractstorage]` with proper key management.
+//!
+//! For maximum security, use `impl_{trait_snake}!` instead of manually writing
+//! `#[contractimpl(contracttrait)]` blocks.
 
 use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
     parse2, parse_quote, Attribute, Error, Expr, FnArg, Ident, ItemTrait, Pat, ReturnType,
@@ -26,8 +47,8 @@ use syn::{
 /// Parsed `#[auth(Self::method)]` or `#[auth(param_name)]` annotation.
 #[derive(Debug, Clone)]
 enum AuthSource {
-    /// `#[auth(Self::method)]` -- call method on Impl to get the address
-    ImplMethod(Ident),
+    /// `#[auth(Self::method)]` -- call method on the provider to get the address
+    ProviderMethod(Ident),
     /// `#[auth(param_name)]` -- use a function parameter directly
     Param(Ident),
 }
@@ -48,7 +69,7 @@ fn extract_auth_attr(attrs: &[Attribute]) -> syn::Result<Option<AuthSource>> {
                             "expected `Self::method_name` or a parameter name",
                         ));
                     }
-                    return Ok(Some(AuthSource::ImplMethod(second.clone())));
+                    return Ok(Some(AuthSource::ProviderMethod(second.clone())));
                 }
                 // param_name
                 Expr::Path(ep) if ep.path.segments.len() == 1 => {
@@ -93,6 +114,7 @@ struct MethodInfo {
     /// The function parameters (excluding `env`)
     params: Vec<ParamInfo>,
     /// Whether the env parameter is a reference (&Env vs Env)
+    #[allow(dead_code)]
     env_is_ref: bool,
 }
 
@@ -100,7 +122,7 @@ struct MethodInfo {
 struct ParamInfo {
     name: Ident,
     ty: syn::Type,
-    is_ref: bool,
+    _is_ref: bool,
 }
 
 /// Check if a type is `Env` or `&Env`.
@@ -153,7 +175,7 @@ fn extract_method_info(method: &TraitItemFn) -> syn::Result<MethodInfo> {
             params.push(ParamInfo {
                 name: param_name,
                 ty,
-                is_ref,
+                _is_ref: is_ref,
             });
         }
     }
@@ -172,15 +194,15 @@ fn extract_method_info(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 // Inner trait generation
 // -----------------------------------------------------------------------------
 
-/// Generate the inner `{Trait}Impl` trait with business-logic-only method signatures.
-fn generate_impl_trait(
+/// Generate the inner `{Trait}Internal` trait with business-logic-only method signatures.
+fn generate_internal_trait(
     trait_name: &Ident,
     methods: &[MethodInfo],
     supertraits: &TokenStream2,
     vis: &syn::Visibility,
     trait_attrs: &[Attribute],
 ) -> TokenStream2 {
-    let impl_trait_name = format_ident!("{}Impl", trait_name);
+    let internal_trait_name = format_ident!("{}Internal", trait_name);
 
     let method_sigs: Vec<_> = methods
         .iter()
@@ -191,7 +213,7 @@ fn generate_impl_trait(
         })
         .collect();
 
-    // Filter doc attrs from the trait for the impl trait
+    // Filter doc attrs from the trait for the internal trait
     let doc_attrs: Vec<_> = trait_attrs
         .iter()
         .filter(|a| a.path().is_ident("doc"))
@@ -199,7 +221,7 @@ fn generate_impl_trait(
 
     quote! {
         #(#doc_attrs)*
-        #vis trait #impl_trait_name #supertraits {
+        #vis trait #internal_trait_name #supertraits {
             #(#method_sigs)*
         }
     }
@@ -217,7 +239,7 @@ fn generate_outer_trait(
     trait_attrs: &[Attribute],
     sdk_passthrough_attrs: &TokenStream2,
 ) -> TokenStream2 {
-    let impl_trait_name = format_ident!("{}Impl", trait_name);
+    let internal_trait_name = format_ident!("{}Internal", trait_name);
 
     let default_methods: Vec<_> = methods
         .iter()
@@ -226,21 +248,18 @@ fn generate_outer_trait(
             let sig = &m.sig;
             let method_name = &m.name;
 
-            // Build delegation args: pass all params to Self::Impl::method()
+            // Build delegation args
             let delegate_args = build_delegate_args(m);
 
-            // Build the env arg
-            let env_arg = if m.env_is_ref {
-                quote! { env }
-            } else {
-                quote! { env }
-            };
+            let env_arg = quote! { env };
 
             // Build auth check (if #[auth] present)
+            // Cache the auth address to avoid redundant storage reads
             let auth_check = match &m.auth {
-                Some(AuthSource::ImplMethod(resolver)) => {
+                Some(AuthSource::ProviderMethod(resolver)) => {
                     quote! {
-                        Self::Impl::#resolver(#env_arg).require_auth();
+                        let __auth_addr = Self::Provider::#resolver(#env_arg);
+                        __auth_addr.require_auth();
                     }
                 }
                 Some(AuthSource::Param(param)) => {
@@ -255,13 +274,13 @@ fn generate_outer_trait(
                 #(#attrs)*
                 #sig {
                     #auth_check
-                    Self::Impl::#method_name(#delegate_args)
+                    Self::Provider::#method_name(#delegate_args)
                 }
             }
         })
         .collect();
 
-    // Filter to non-doc, non-auth attrs for the outer trait
+    // Filter attrs
     let non_doc_attrs: Vec<_> = trait_attrs
         .iter()
         .filter(|a| !a.path().is_ident("doc") && !a.path().is_ident("auth"))
@@ -276,32 +295,110 @@ fn generate_outer_trait(
         #(#non_doc_attrs)*
         #[soroban_sdk::contracttrait(#sdk_passthrough_attrs)]
         #vis trait #trait_name {
-            type Impl: #impl_trait_name;
+            type Provider: #internal_trait_name;
 
             #(#default_methods)*
         }
     }
 }
 
-/// Build the argument list for delegating to `Self::Impl::method(...)`.
+/// Build the argument list for delegating to `Self::Provider::method(...)`.
 fn build_delegate_args(method: &MethodInfo) -> TokenStream2 {
     let mut args = Vec::new();
 
-    // First arg is always env
     let env_ident: Ident = parse_quote!(env);
-    args.push(if method.env_is_ref {
-        quote! { #env_ident }
-    } else {
-        quote! { #env_ident }
-    });
+    args.push(quote! { #env_ident });
 
-    // Remaining args from params
     for p in &method.params {
         let name = &p.name;
         args.push(quote! { #name });
     }
 
     quote! { #(#args),* }
+}
+
+// -----------------------------------------------------------------------------
+// Sealed impl macro generation
+// -----------------------------------------------------------------------------
+
+/// Generate `impl_{trait_snake}!` helper macro for non-overridable auth wiring.
+///
+/// This produces a `macro_rules!` that generates a `#[contractimpl]` block
+/// (NOT `#[contractimpl(contracttrait)]`) with auth methods baked in.
+/// Since these are inherent methods, not trait defaults, they cannot be overridden.
+fn generate_sealed_impl_macro(
+    trait_name: &Ident,
+    methods: &[MethodInfo],
+) -> TokenStream2 {
+    let internal_trait_name = format_ident!("{}Internal", trait_name);
+    let trait_snake = to_snake_case(&trait_name.to_string());
+    let macro_name = format_ident!("impl_{}", trait_snake);
+
+    // Generate method bodies for each method
+    let method_impls: Vec<_> = methods
+        .iter()
+        .map(|m| {
+            let method_name = &m.name;
+            let sig = &m.sig;
+            let delegate_args = build_delegate_args(m);
+            let attrs = &m.attrs;
+
+            let auth_check = match &m.auth {
+                Some(AuthSource::ProviderMethod(resolver)) => {
+                    quote! {
+                        let __auth_addr = <$provider as #internal_trait_name>::#resolver(env);
+                        __auth_addr.require_auth();
+                    }
+                }
+                Some(AuthSource::Param(param)) => {
+                    quote! { #param.require_auth(); }
+                }
+                None => quote! {},
+            };
+
+            quote! {
+                #(#attrs)*
+                pub #sig {
+                    #auth_check
+                    <$provider as #internal_trait_name>::#method_name(#delegate_args)
+                }
+            }
+        })
+        .collect();
+
+    quote! {
+        /// Sealed implementation macro for non-overridable auth enforcement.
+        ///
+        /// Usage: `impl_#trait_snake!(MyContract, MyProvider);`
+        ///
+        /// This generates a `#[contractimpl]` block where auth methods are
+        /// inherent methods (not trait defaults), making them impossible to override.
+        #[macro_export]
+        macro_rules! #macro_name {
+            ($contract:ty, $provider:ty) => {
+                #[soroban_sdk::contractimpl]
+                impl $contract {
+                    #(#method_impls)*
+                }
+            };
+        }
+    }
+}
+
+/// Convert PascalCase to snake_case.
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_lowercase().next().unwrap());
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 // -----------------------------------------------------------------------------
@@ -315,14 +412,12 @@ fn generate_auth_client(
 ) -> TokenStream2 {
     let auth_client_name = format_ident!("{}AuthClient", trait_name);
     let client_name = format_ident!("{}Client", trait_name);
-    // Use a unique alloc alias per trait to avoid conflicts when multiple
-    // #[contracttrait] invocations exist in the same module.
     let alloc_alias = format_ident!("__alloc_{}", trait_name);
 
     let client_methods: Vec<_> = methods
         .iter()
         .filter(|m| !m.name.to_string().starts_with("__"))
-        .map(|m| generate_auth_client_method(m, &client_name, &alloc_alias))
+        .map(|m| generate_auth_client_method(m, &alloc_alias))
         .collect();
 
     quote! {
@@ -370,14 +465,12 @@ fn generate_auth_client(
 /// Generate a single AuthClient method that returns a CallBuilder.
 fn generate_auth_client_method(
     method: &MethodInfo,
-    _client_name: &Ident,
     alloc_alias: &Ident,
 ) -> TokenStream2 {
     let fn_name = &method.name;
     let try_fn_name = format_ident!("try_{}", fn_name);
     let fn_name_str = fn_name.to_string();
 
-    // Parameters for the AuthClient method (all by reference)
     let params: Vec<_> = method
         .params
         .iter()
@@ -388,7 +481,6 @@ fn generate_auth_client_method(
         })
         .collect();
 
-    // Clone statements for invoker closure
     let arg_clones: Vec<_> = method
         .params
         .iter()
@@ -399,7 +491,6 @@ fn generate_auth_client_method(
         })
         .collect();
 
-    // Clone statements for try_invoker closure
     let try_arg_clones: Vec<_> = method
         .params
         .iter()
@@ -410,21 +501,18 @@ fn generate_auth_client_method(
         })
         .collect();
 
-    // Clone names for invoker
     let clone_names: Vec<_> = method
         .params
         .iter()
         .map(|p| format_ident!("{}_clone", p.name))
         .collect();
 
-    // Clone names for try_invoker
     let try_clone_names: Vec<_> = method
         .params
         .iter()
         .map(|p| format_ident!("{}_try_clone", p.name))
         .collect();
 
-    // Args tuple for mock auth (all cloned)
     let args_tuple: Vec<_> = method
         .params
         .iter()
@@ -443,10 +531,8 @@ fn generate_auth_client_method(
         quote! { (#(#args_tuple),*) }
     };
 
-    // Return type -- unwrap Result<T, E> to T for the standard client
     let (return_ty, try_return_ty) = extract_return_types(&method.sig.output);
 
-    // Doc string
     let doc_attrs: Vec<_> = method
         .attrs
         .iter()
@@ -501,7 +587,6 @@ fn extract_return_types(output: &ReturnType) -> (TokenStream2, TokenStream2) {
             (ret, try_ret)
         }
         ReturnType::Type(_, ty) => {
-            // Check if it's a Result<T, E>
             if let Some((ok_ty, err_ty)) = unpack_result_type(ty) {
                 let try_ret = quote! {
                     Result<
@@ -549,18 +634,17 @@ fn unpack_result_type(ty: &syn::Type) -> Option<(syn::Type, syn::Type)> {
 // Supertrait handling
 // -----------------------------------------------------------------------------
 
-/// Extract supertraits from a trait definition and map them to Impl supertraits.
-/// e.g., `Pausable: Ownable` becomes `PausableImpl: OwnableImpl`
-fn map_supertraits_to_impl(trait_def: &ItemTrait) -> TokenStream2 {
+/// Extract supertraits and map to Internal trait names.
+/// e.g., `Pausable: Ownable` becomes `PausableInternal: OwnableInternal`
+fn map_supertraits_to_internal(trait_def: &ItemTrait) -> TokenStream2 {
     let bounds: Vec<_> = trait_def
         .supertraits
         .iter()
         .filter_map(|bound| {
             if let syn::TypeParamBound::Trait(tb) = bound {
-                // Get the last segment of the trait path
                 if let Some(seg) = tb.path.segments.last() {
-                    let impl_name = format_ident!("{}Impl", seg.ident);
-                    Some(quote! { #impl_name })
+                    let internal_name = format_ident!("{}Internal", seg.ident);
+                    Some(quote! { #internal_name })
                 } else {
                     None
                 }
@@ -598,7 +682,6 @@ fn contracttrait_inner(attr: TokenStream2, item: TokenStream2) -> syn::Result<To
     let trait_name = &trait_def.ident;
     let vis = &trait_def.vis;
 
-    // Collect all non-auth, non-contracttrait attributes from the trait
     let trait_attrs: Vec<_> = trait_def
         .attrs
         .iter()
@@ -606,42 +689,38 @@ fn contracttrait_inner(attr: TokenStream2, item: TokenStream2) -> syn::Result<To
         .cloned()
         .collect();
 
-    // Extract method infos from trait items
     let mut methods = Vec::new();
-    let mut other_items = Vec::new();
 
     for item in &trait_def.items {
-        match item {
-            TraitItem::Fn(method) => {
-                methods.push(extract_method_info(method)?);
-            }
-            TraitItem::Type(_) => {
-                // Skip associated types -- we generate our own `type Impl`
-                other_items.push(item.clone());
-            }
-            other => {
-                other_items.push(other.clone());
-            }
+        if let TraitItem::Fn(method) = item {
+            methods.push(extract_method_info(method)?);
         }
     }
 
-    // Map supertraits for the inner Impl trait
-    let impl_supertraits = map_supertraits_to_impl(&trait_def);
+    let internal_supertraits = map_supertraits_to_internal(&trait_def);
 
-    // Generate the inner Impl trait
-    let impl_trait = generate_impl_trait(trait_name, &methods, &impl_supertraits, vis, &trait_attrs);
+    let internal_trait =
+        generate_internal_trait(trait_name, &methods, &internal_supertraits, vis, &trait_attrs);
 
-    // Generate the outer trait with auth-wrapped defaults
     let outer_trait = generate_outer_trait(trait_name, &methods, vis, &trait_attrs, &attr);
 
-    // Generate AuthClient
     let auth_client = generate_auth_client(trait_name, &methods);
 
+    // Generate sealed impl macro only if there are auth methods
+    let has_auth_methods = methods.iter().any(|m| m.auth.is_some());
+    let sealed_macro = if has_auth_methods {
+        generate_sealed_impl_macro(trait_name, &methods)
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
-        #impl_trait
+        #internal_trait
 
         #outer_trait
 
         #auth_client
+
+        #sealed_macro
     })
 }

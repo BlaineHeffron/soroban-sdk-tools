@@ -4,10 +4,11 @@ use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk_tools::contracttrait;
 
 // === Trait definition using our macro ===
-// This generates:
-//   - OwnableImpl trait (inner, business logic)
-//   - Ownable trait (outer, auth-enforced, with type Impl)
+// Generates:
+//   - OwnableInternal trait (inner, business logic)
+//   - Ownable trait (outer, auth-enforced, with type Provider)
 //   - OwnableAuthClient (test helper)
+//   - impl_ownable! macro (sealed auth wiring)
 
 #[contracttrait]
 pub trait Ownable {
@@ -17,10 +18,10 @@ pub trait Ownable {
     fn transfer_ownership(env: &Env, new_owner: Address);
 }
 
-// === Provider: implements OwnableImpl (business logic only) ===
+// === Provider: implements OwnableInternal (business logic only) ===
 pub struct SingleOwner;
 
-impl OwnableImpl for SingleOwner {
+impl OwnableInternal for SingleOwner {
     fn owner(env: &Env) -> Address {
         env.storage()
             .instance()
@@ -47,7 +48,7 @@ pub trait Pausable: Ownable {
     fn unpause(env: &Env);
 }
 
-impl PausableImpl for SingleOwner {
+impl PausableInternal for SingleOwner {
     fn is_paused(env: &Env) -> bool {
         env.storage()
             .instance()
@@ -72,15 +73,19 @@ impl PausableImpl for SingleOwner {
 #[contract]
 pub struct TestContract;
 
+// Option A: Use #[contractimpl(contracttrait)] -- flexible but overridable
 #[contractimpl(contracttrait)]
 impl Ownable for TestContract {
-    type Impl = SingleOwner;
+    type Provider = SingleOwner;
 }
 
 #[contractimpl(contracttrait)]
 impl Pausable for TestContract {
-    type Impl = SingleOwner;
+    type Provider = SingleOwner;
 }
+
+// Option B: Use impl_ownable!(TestContract, SingleOwner) for sealed auth
+// (cannot be used alongside the contractimpl above for the same methods)
 
 #[contractimpl]
 impl TestContract {
@@ -108,10 +113,8 @@ mod test {
         let owner = Address::generate(&env);
         client.init(&owner);
 
-        // owner() should work
         assert_eq!(client.owner(), owner);
 
-        // transfer_ownership has structural auth enforcement
         let new_owner = Address::generate(&env);
         client.transfer_ownership(&new_owner);
         assert_eq!(client.owner(), new_owner);
@@ -128,7 +131,6 @@ mod test {
         let owner = Address::generate(&env);
         client.init(&owner);
 
-        // Pause/unpause uses owner auth from Ownable supertrait
         assert!(!client.is_paused());
         client.pause();
         assert!(client.is_paused());
@@ -137,7 +139,7 @@ mod test {
     }
 
     #[test]
-    fn test_auth_client() {
+    fn test_ownable_auth_client() {
         let env = Env::default();
 
         let contract_id = env.register(TestContract, ());
@@ -148,7 +150,6 @@ mod test {
         env.mock_all_auths();
         client.init(&owner);
 
-        // Use AuthClient for explicit auth testing
         let new_owner = Address::generate(&env);
         auth_client
             .transfer_ownership(&new_owner)
@@ -170,11 +171,9 @@ mod test {
         env.mock_all_auths();
         client.init(&owner);
 
-        // Pause with explicit auth
         pause_auth.pause().authorize(&owner).invoke();
         assert!(client.is_paused());
 
-        // Unpause with explicit auth
         pause_auth.unpause().authorize(&owner).invoke();
         assert!(!client.is_paused());
     }

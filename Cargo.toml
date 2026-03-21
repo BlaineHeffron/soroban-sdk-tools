@@ -15,7 +15,7 @@ version = "0.1.0"
 authors = ["Blaine Heffron", "Willem Wyndham"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.80"
 repository = "https://github.com/blaineheffron/soroban-sdk-tools"
 
 [workspace.dependencies]

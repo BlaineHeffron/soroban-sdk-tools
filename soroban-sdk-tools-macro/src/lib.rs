@@ -154,16 +154,22 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 
 /// Define a composable contract trait with structural auth enforcement.
 ///
-/// This macro generates a two-trait structure from a single trait definition:
+/// This macro generates from a single trait definition:
 ///
-/// - **Inner trait** (`{Trait}Impl`): Pure business logic methods that providers implement
-/// - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Impl` for selecting a provider
+/// - **Internal trait** (`{Trait}Internal`): Pure business logic that providers implement
+/// - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Provider` for DI
+/// - **AuthClient** (`{Trait}AuthClient`): Test helper for authorization testing
+/// - **Sealed macro** (`impl_{trait_snake}!`): Non-overridable auth wiring (if `#[auth]` methods exist)
 ///
 /// Methods annotated with `#[auth(Self::method)]` get structural auth enforcement:
 /// the outer trait's default method calls `require_auth()` on the resolved address
-/// before delegating to the inner implementation. This cannot be bypassed.
+/// before delegating to the internal implementation.
 ///
-/// Also generates `{Trait}AuthClient` for simplified authorization testing.
+/// # Security
+///
+/// For maximum auth enforcement, use the generated `impl_{trait_snake}!` macro
+/// instead of `#[contractimpl(contracttrait)]`. The helper macro generates auth
+/// methods as inherent `#[contractimpl]` methods that cannot be overridden.
 ///
 /// # Example
 ///
@@ -176,9 +182,9 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 ///     fn transfer_ownership(env: &Env, new_owner: Address);
 /// }
 ///
-/// // Implement the inner trait (business logic only)
+/// // Implement the internal trait (business logic only)
 /// pub struct SingleOwner;
-/// impl OwnableImpl for SingleOwner {
+/// impl OwnableInternal for SingleOwner {
 ///     fn owner(env: &Env) -> Address {
 ///         OwnableStorage::get_owner(env).unwrap()
 ///     }
@@ -187,10 +193,13 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 ///     }
 /// }
 ///
-/// // Wire to contract via type Impl
+/// // Option A: Sealed (recommended) -- auth cannot be overridden
+/// impl_ownable!(MyContract, SingleOwner);
+///
+/// // Option B: Flexible -- auth can be customized via override
 /// #[contractimpl(contracttrait)]
 /// impl Ownable for MyContract {
-///     type Impl = SingleOwner;
+///     type Provider = SingleOwner;
 /// }
 /// ```
 #[proc_macro_attribute]
