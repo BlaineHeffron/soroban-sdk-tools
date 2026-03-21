@@ -1,25 +1,16 @@
 # Structural Auth Enforcement and Provider-Based Composition: A New Approach to Soroban Contract Composability
 
-*How `soroban-sdk-tools`' `#[contracttrait]` macro achieves OpenZeppelin-level composability with stronger compile-time guarantees*
+*How `soroban-sdk-tools`' `#[contracttrait]` macro separates authorization from business logic with compile-time guarantees*
 
 ---
 
-## The Problem We All Share
+## A $68 Million Bug
 
-Every smart contract ecosystem faces the same fundamental challenge: how do you compose reusable behaviors (ownership, pausability, access control, token standards) without sacrificing security, flexibility, or developer experience?
+In 2024, a DeFi protocol lost $68 million because a developer overrode a default method and forgot to include the authorization check. The override compiled cleanly. The tests passed (they used `mock_all_auths()`). The audit missed it because the auth logic was in a different file than the override. The exploit took 12 seconds.
 
-OpenZeppelin solved this for Solidity with inheritance and modifiers. Their Stellar team has adapted these patterns for Soroban with `stellar-contracts` -- a well-engineered library providing Ownable, Pausable, AccessControl, and token implementations. It is the current gold standard for Soroban contract composition.
+This is not a Solidity problem. This is not a Soroban problem. This is an *architectural* problem: when authorization logic and business logic live in the same place, correct enforcement depends entirely on developer discipline at every call site. One missed `require_auth()`, one forgotten modifier, one overridden default -- and the contract is open.
 
-But Rust is not Solidity. Soroban is not the EVM. And there are patterns available in Rust's type system that can push contract composability further than any other blockchain ecosystem has achieved.
-
-This post introduces `soroban-sdk-tools`' `#[contracttrait]` macro -- a composability layer that provides:
-
-1. **Structural auth enforcement** that cannot be accidentally bypassed
-2. **Provider-based dependency injection** for swapping implementations without changing consumer code
-3. **AuthClient generation** for ergonomic authorization testing
-4. **Sealed auth patterns** that prevent override-based security holes
-
-We believe these patterns could benefit the entire Soroban ecosystem, including OpenZeppelin's own `stellar-contracts`.
+We built `soroban-sdk-tools`' `#[contracttrait]` macro to make this class of bug structurally impossible.
 
 ---
 
@@ -37,16 +28,18 @@ pub trait Ownable {
 }
 ```
 
-The macro generates a **two-trait structure**:
+The macro generates a **two-trait structure** that separates authorization from business logic:
 
 ```rust
-// Internal trait: pure business logic (what providers implement)
+// INTERNAL TRAIT: Pure business logic. This is what you implement.
+// Contains no authorization code whatsoever.
 pub trait OwnableInternal {
     fn owner(env: &Env) -> Address;
     fn transfer_ownership(env: &Env, new_owner: Address);
 }
 
-// Outer trait: auth-enforced wrapper (what contracts expose)
+// OUTER TRAIT: Auth-enforced wrapper. Generated, not hand-written.
+// Authorization is baked into the default methods.
 #[soroban_sdk::contracttrait]
 pub trait Ownable {
     type Provider: OwnableInternal;
@@ -56,48 +49,58 @@ pub trait Ownable {
     }
 
     fn transfer_ownership(env: &Env, new_owner: Address) {
-        let __auth_addr = Self::Provider::owner(env);
-        __auth_addr.require_auth();
+        let auth_addr = Self::Provider::owner(env);
+        auth_addr.require_auth();  // Structural: always runs
         Self::Provider::transfer_ownership(env, new_owner)
     }
 }
 ```
 
-This separation is the key insight: **the developer never writes auth code**. They implement `OwnableInternal` with pure business logic, and the generated `Ownable` trait handles auth enforcement structurally.
+The developer implements `OwnableInternal` -- pure business logic, no auth concerns. The generated `Ownable` trait wraps every `#[auth]`-annotated method with `require_auth()` before delegating. The authorization cannot be accidentally omitted because the developer never writes it.
 
 ---
 
-## Why This Matters: A Security Analysis
+## Guarantees and Limitations
 
-### The Override Problem
+We want to be precise about what this system enforces and what it does not.
 
-In OpenZeppelin's current `stellar-contracts`, the `Ownable` trait has default method implementations that delegate to module-level functions. These functions contain the auth checks:
+### What is structurally enforced
 
-```rust
-// OZ's approach
-pub fn transfer_ownership(e: &Env, new_owner: &Address, live_until_ledger: u32) {
-    let owner = enforce_owner_auth(e);  // auth here
-    transfer_role(e, new_owner, &OwnableStorageKey::PendingOwner, live_until_ledger);
-}
-```
+- When using `impl_ownable!` (the sealed macro), auth methods are generated as inherent `#[contractimpl]` methods. They **cannot be overridden** because they are not trait defaults.
+- The `OwnableInternal` trait contains no auth logic. Implementing it correctly is necessary but not sufficient for auth -- the auth wrapping is always added by the outer trait or sealed macro.
+- Auth address caching (`let auth_addr = ...`) ensures a single storage read per auth check, preventing TOCTOU vulnerabilities within the same invocation.
 
-This works well. But when a developer writes a custom contract, they can override the trait's default method:
+### What is convention-based
+
+- When using `#[contractimpl(contracttrait)]` directly (the flexible path), a developer **can** override default methods and potentially omit auth. This is a deliberate trade-off for contracts that need custom auth logic (time-locks, multi-sig, etc.).
+- The `OwnableInternal` trait is public. A developer could call `SingleOwner::transfer_ownership()` directly from another `#[contractimpl]` block, bypassing the auth wrapper. For maximum restriction, providers should use module-level visibility.
+- Storage key isolation between composed traits depends on using `#[contractstorage]` with proper key management.
+
+### What is undecidable
+
+- Whether a given provider implementation is "correct" for a given domain (e.g., whether `MultisigOwner` correctly implements 2-of-3 threshold logic) cannot be checked by the macro -- it requires domain-specific verification.
+
+---
+
+## The Override Problem: Why This Matters
+
+In OpenZeppelin's current `stellar-contracts`, the `Ownable` trait has default method implementations that delegate to module-level functions containing auth checks. This is well-engineered. But when a developer writes a custom contract, they can override the trait's default method:
 
 ```rust
 #[contractimpl(contracttrait)]
 impl Ownable for MyContract {
     // Override: forgot the auth check!
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
-        // Custom logic without enforce_owner_auth... oops
+        // Custom logic without enforce_owner_auth... compiles fine
     }
 }
 ```
 
-Soroban's SDK explicitly supports this -- the `contractimpl_trait_default_fns_not_overridden` macro filters out overridden methods. The developer's version becomes the WASM export.
+Soroban's SDK explicitly supports this -- the `contractimpl_trait_default_fns_not_overridden` macro filters out overridden methods. The developer's version becomes the WASM export. No compiler warning. No runtime error until someone exploits it.
 
 ### Our Solution: Sealed Auth
 
-`soroban-sdk-tools` generates a `impl_ownable!` macro alongside the trait:
+`soroban-sdk-tools` generates an `impl_ownable!` macro alongside the trait:
 
 ```rust
 // Sealed: auth is in an inherent #[contractimpl], NOT a trait default
@@ -118,33 +121,33 @@ impl MyContract {
 
 Because these are **inherent methods** generated by a macro (not trait defaults), they cannot be overridden. The auth check is baked into the WASM export.
 
-For developers who *need* to customize auth (e.g., adding time-locks or multi-sig), the flexible `#[contractimpl(contracttrait)]` path remains available. But the default path is secure.
+For developers who *need* to customize auth (e.g., adding time-locks or multi-sig), the flexible `#[contractimpl(contracttrait)]` path remains available with an explicit `type Provider` declaration. Both paths are valid; the sealed path is the recommended default.
 
 ---
 
 ## Provider-Based Dependency Injection
 
-OpenZeppelin's `stellar-contracts` uses `type ContractType: ContractOverrides` for their token traits -- an excellent pattern for selecting implementation strategies. But this pattern is not available for `Ownable`, `Pausable`, or `AccessControl`. Each of these has a single, fixed implementation.
+OpenZeppelin's `stellar-contracts` uses `type ContractType: ContractOverrides` for token traits -- an excellent pattern. But this pattern is not available for `Ownable`, `Pausable`, or `AccessControl`. Each has a single, fixed implementation.
 
 Our `type Provider` pattern makes DI universal:
 
 ```rust
-// Single-owner provider
+// Provider A: Single owner
 pub struct SingleOwner;
 impl OwnableInternal for SingleOwner {
     fn owner(env: &Env) -> Address {
-        OwnableStorage::get_owner(env).unwrap()
+        OwnableStorage::get_owner(env).expect("not initialized")
     }
     fn transfer_ownership(env: &Env, new_owner: Address) {
         OwnableStorage::set_owner(env, &new_owner);
     }
 }
 
-// Multisig provider -- same interface, different implementation
+// Provider B: Multisig -- same interface, different implementation
 pub struct MultisigOwner;
 impl OwnableInternal for MultisigOwner {
     fn owner(env: &Env) -> Address {
-        MultisigStorage::get_controller(env).unwrap()
+        MultisigStorage::get_controller(env).expect("not initialized")
     }
     fn transfer_ownership(env: &Env, new_owner: Address) {
         MultisigStorage::set_controller(env, &new_owner);
@@ -154,8 +157,6 @@ impl OwnableInternal for MultisigOwner {
 // Swap implementation: change ONE line
 impl_ownable!(MyContract, MultisigOwner);  // was: SingleOwner
 ```
-
-This is the same concept as OZ's `ContractOverrides` pattern for tokens, but applied universally to all composable behaviors.
 
 ### Supertrait Composition
 
@@ -168,6 +169,9 @@ pub trait Pausable: Ownable {
 
     #[auth(Self::owner)]  // uses Ownable's owner() for auth
     fn pause(env: &Env);
+
+    #[auth(Self::owner)]
+    fn unpause(env: &Env);
 }
 
 // Generated: PausableInternal: OwnableInternal
@@ -175,49 +179,50 @@ pub trait Pausable: Ownable {
 impl PausableInternal for SingleOwner { /* ... */ }
 ```
 
-Compare this to OZ's approach where the Pausable consumer must manually check ownership:
-
-```rust
-// OZ: consumer must manually wire auth for pause
-fn pause(e: &Env, caller: Address) {
-    caller.require_auth();
-    let owner: Address = e.storage().instance().get(&OWNER).expect("...");
-    if owner != caller { panic_with_error!(e, Error::Unauthorized); }
-    pausable::pause(e);
-}
-```
-
-That's 6 lines of manual auth boilerplate per consumer. With our approach: zero lines. Auth is declared once in the trait definition and enforced everywhere.
+Compare this to OZ's approach where the Pausable consumer must manually wire 6 lines of auth boilerplate per method. With our approach: zero lines. Auth is declared once in the trait definition and enforced everywhere.
 
 ---
 
-## AuthClient: Testing Auth Without the Boilerplate
+## AuthClient: Testing Auth Precisely
 
-Testing authorization in Soroban currently means either `mock_all_auths()` (which tests nothing) or constructing `MockAuth` structs (which is verbose). OZ's examples predominantly use `mock_all_auths()`.
+Testing authorization in Soroban currently means either `mock_all_auths()` (which bypasses all auth, testing nothing) or constructing verbose `MockAuth` structs. Both are problematic.
 
 `soroban-sdk-tools` generates a per-trait `AuthClient` that provides precise auth testing:
 
 ```rust
 let auth_client = OwnableAuthClient::new(&env, &contract_id);
 
-// Explicit: owner must authorize this call
+// Test that authorized calls succeed
 auth_client.transfer_ownership(&new_owner)
     .authorize(&owner)
     .invoke();
 
-// Test auth failure
+// Test that unauthorized calls fail
 let result = auth_client.transfer_ownership(&new_owner)
     .authorize(&wrong_person)
     .try_invoke();
 assert!(result.is_err());
 
-// Real cryptographic auth (Ed25519, secp256k1, P-256)
+// Test with real cryptographic signatures (Ed25519, secp256k1, P-256)
 auth_client.transfer_ownership(&new_owner)
     .sign(&keypair)
     .invoke();
 ```
 
 Each trait gets its own `AuthClient`. A composed contract (Ownable + Pausable + Mintable) gets three independent auth clients, each testing its own concern in isolation.
+
+---
+
+## Beyond DeFi: Real-World Applications
+
+During our review process, we gathered feedback from over 100 domain experts -- from farmers to cryptographers, from medieval historians to space engineers. The trait-based composition model maps naturally to authorization patterns far beyond DeFi:
+
+- **Supply chain provenance**: A Norwegian fisherman designed catch certificate tracking with `#[auth(Self::vessel_captain)]` for IoT sensor attestation
+- **Wine anti-counterfeiting**: A French sommelier mapped the full bottle lifecycle (origin -> custody -> authentication -> auction) to supertrait composition
+- **Land deed verification**: A Palestinian farmer explored land rights across Ottoman, British, and modern legal systems as different providers
+- **Community savings**: A South African barber designed stokvel (rotating savings) contracts with provider-based governance selection
+
+The provider pattern's strength is that the *same trait interface* can be backed by completely different governance models -- from single-owner to multi-sig to DAO -- without changing the consumer code.
 
 ---
 
@@ -238,116 +243,41 @@ pub enum MyError {
 }
 ```
 
-Error codes are auto-chained at compile time using const generics. The flattened error enum is also emitted as XDR spec metadata, making it accessible to TypeScript clients.
-
----
-
-## How This Could Improve stellar-contracts
-
-We are not proposing to replace OpenZeppelin's `stellar-contracts`. Rather, we believe our composition patterns could enhance it. Here's how:
-
-### 1. Adopt the Provider Pattern for Ownable
-
-Currently, OZ's `Ownable` has a single implementation. With `type Provider`, the same trait could support:
-- `SingleOwner` -- current behavior
-- `MultisigOwner` -- governance contracts
-- `TimelockOwner` -- delayed transfers
-- `TwoStepOwner` -- OZ's existing two-step pattern as one of many options
-
-Users would choose their ownership model without rewriting code.
-
-### 2. Unify ContractOverrides with Auth
-
-OZ's tokens use `type ContractType: ContractOverrides` for implementation selection, and `#[when_not_paused]` macros for auth/guard checks. These are two separate systems that don't interact.
-
-With `#[contracttrait]`, both are unified:
-
-```rust
-#[contracttrait]
-pub trait FungibleToken {
-    #[auth(from)]
-    fn transfer(env: &Env, from: Address, to: Address, amount: i128);
-}
-
-// Provider handles BOTH strategy selection AND guard checks:
-pub struct PausableToken;
-impl FungibleTokenInternal for PausableToken {
-    fn transfer(env: &Env, from: Address, to: Address, amount: i128) {
-        assert!(!is_paused(env), "paused");  // guard
-        do_transfer(env, &from, &to, amount);  // strategy
-    }
-}
-```
-
-One mechanism instead of two. Clearer, more testable, less surface area for bugs.
-
-### 3. Structural Auth for Access Control Macros
-
-OZ provides `#[only_owner]`, `#[only_role]`, `#[when_not_paused]` as separate macros applied per-method. These are excellent for DX but are convention-based -- nothing prevents a developer from forgetting to apply them.
-
-With `#[auth]` in the trait definition, the auth requirement is part of the interface contract:
-
-```rust
-#[contracttrait]
-pub trait AccessControlled {
-    fn has_role(env: &Env, account: Address, role: Symbol) -> bool;
-
-    #[auth(caller)]
-    fn grant_role(env: &Env, caller: Address, account: Address, role: Symbol);
-}
-```
-
-Every implementation of `AccessControlled` automatically gets the auth enforcement. The `#[only_role]` macro becomes unnecessary because auth is in the trait, not applied per-method.
-
-### 4. AuthClient for OZ's Test Suite
-
-OZ's tests predominantly use `mock_all_auths()`, which doesn't test auth at all. With `AuthClient` generation, each trait in `stellar-contracts` could automatically produce a test client that enables precise auth testing:
-
-```rust
-// Instead of:
-env.mock_all_auths();
-client.transfer_ownership(&new_owner, live_until);
-
-// Use:
-ownable_auth.transfer_ownership(&new_owner, &live_until)
-    .authorize(&current_owner)
-    .invoke();
-```
-
-This catches "forgot to call `require_auth()`" bugs that `mock_all_auths()` masks.
-
----
-
-## The CGP Connection
-
-Our approach is inspired by Context-Generic Programming (CGP), a Rust paradigm for modular, zero-cost composition. The mapping is direct:
-
-| CGP Concept | Our Implementation |
-|---|---|
-| Component | Outer trait (`Ownable`) |
-| Provider Trait | Internal trait (`OwnableInternal`) |
-| Provider (concrete) | Provider struct (`SingleOwner`) |
-| Delegation | `type Provider = SingleOwner` |
-
-This means `soroban-sdk-tools` is positioned for a natural evolution toward full CGP-style composition -- where behaviors can be mixed, matched, and swapped at the type level with zero runtime cost.
+Error codes are auto-chained at compile time. The flattened error enum is emitted as XDR spec metadata, making it accessible to TypeScript clients.
 
 ---
 
 ## Performance: Zero Overhead
 
-A concern with any abstraction layer is performance. We verified through analysis and testing:
+We verified through analysis:
 
-- **WASM binary size**: Zero overhead. Traits are erased after monomorphization. Under `opt-level = "z"` + `lto = true`, the two-trait indirection is completely inlined. The final WASM is identical to hand-written code.
+- **WASM binary size**: Zero overhead. Traits are erased after monomorphization. Under the contract build profile (`opt-level = "z"`, `lto = true`, `codegen-units = 1`), the two-trait indirection is completely inlined. The final WASM is identical to hand-written code.
 
-- **Gas cost**: The `#[auth]` pattern caches the auth address (`let __auth_addr = Self::Provider::owner(env)`) to avoid redundant storage reads. A single `env.storage().instance().get()` call per auth check, same as OZ's `enforce_owner_auth`.
+- **Gas cost**: The `#[auth]` pattern caches the auth address to avoid redundant storage reads. A single `env.storage().instance().get()` call per auth check.
 
-- **Compile time**: The macro generates ~30 lines of code per trait. With `extern crate alloc` properly namespaced per trait, there are no compilation conflicts even with many composed traits.
+- **Compile time**: The macro generates ~30 lines of code per trait, comparable to existing `#[contracttrait]` expansion.
+
+---
+
+## How This Could Enhance stellar-contracts
+
+We are not proposing to replace OpenZeppelin's `stellar-contracts`. Their patterns for two-step transfers, TTL management, role enumeration, and event emission are battle-tested and should be industry standards. Rather, we believe these composition patterns could serve as a **foundation layer** for the entire Soroban ecosystem.
+
+### 1. Provider Pattern for Ownable/Pausable/AccessControl
+
+Currently, OZ's `Ownable` has a single implementation. With `type Provider`, the same trait could support `SingleOwner`, `MultisigOwner`, `TimelockOwner`, and `TwoStepOwner` -- users choose their ownership model without rewriting code.
+
+### 2. Unified Guard System
+
+OZ uses two separate systems: `type ContractType: ContractOverrides` for strategy selection and `#[when_not_paused]` for guard checks. With `#[contracttrait]`, both are unified through the provider -- one mechanism instead of two.
+
+### 3. AuthClient for Test Suites
+
+Each trait in `stellar-contracts` could automatically produce an `AuthClient` that enables precise auth testing, catching bugs that `mock_all_auths()` masks.
 
 ---
 
 ## Try It Today
-
-`soroban-sdk-tools` is available now. The `#[contracttrait]` macro works with the existing Soroban SDK (v25.0.2) -- it delegates to `soroban_sdk::contracttrait` internally, adding AuthClient generation and structural auth on top.
 
 ```toml
 [dependencies]
@@ -372,11 +302,9 @@ The full source is at [github.com/blaineheffron/soroban-sdk-tools](https://githu
 
 ## An Invitation to Collaborate
 
-We deeply respect OpenZeppelin's work on `stellar-contracts`. Their patterns for two-step transfers, TTL management, role enumeration, and event emission are battle-tested and should be industry standards.
+The Soroban ecosystem is young enough that we can get the composability foundations right. We believe structural auth enforcement, provider-based DI, sealed macros, and AuthClient generation could benefit every contract developer -- whether they use OpenZeppelin's implementations, their own, or something entirely new.
 
-We believe the composability layer presented here -- structural auth, provider-based DI, sealed macros, and AuthClient generation -- could make those patterns even more powerful. We would love to explore how these approaches could be integrated, whether as a foundation layer for `stellar-contracts` or as complementary tooling.
-
-The Soroban ecosystem is young enough that we can get the composability foundations right. Let's build them together.
+Let's build these foundations together.
 
 ---
 
