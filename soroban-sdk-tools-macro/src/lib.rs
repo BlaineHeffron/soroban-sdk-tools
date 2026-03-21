@@ -151,3 +151,49 @@ pub fn scerr(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn contractimport(attr: TokenStream) -> TokenStream {
     contractimport::contractimport_impl(attr)
 }
+
+/// Define a composable contract trait with structural auth enforcement.
+///
+/// This macro generates a two-trait structure from a single trait definition:
+///
+/// - **Inner trait** (`{Trait}Impl`): Pure business logic methods that providers implement
+/// - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Impl` for selecting a provider
+///
+/// Methods annotated with `#[auth(Self::method)]` get structural auth enforcement:
+/// the outer trait's default method calls `require_auth()` on the resolved address
+/// before delegating to the inner implementation. This cannot be bypassed.
+///
+/// Also generates `{Trait}AuthClient` for simplified authorization testing.
+///
+/// # Example
+///
+/// ```ignore
+/// #[contracttrait]
+/// pub trait Ownable {
+///     fn owner(env: &Env) -> Address;
+///
+///     #[auth(Self::owner)]
+///     fn transfer_ownership(env: &Env, new_owner: Address);
+/// }
+///
+/// // Implement the inner trait (business logic only)
+/// pub struct SingleOwner;
+/// impl OwnableImpl for SingleOwner {
+///     fn owner(env: &Env) -> Address {
+///         OwnableStorage::get_owner(env).unwrap()
+///     }
+///     fn transfer_ownership(env: &Env, new_owner: Address) {
+///         OwnableStorage::set_owner(env, &new_owner);
+///     }
+/// }
+///
+/// // Wire to contract via type Impl
+/// #[contractimpl(contracttrait)]
+/// impl Ownable for MyContract {
+///     type Impl = SingleOwner;
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn contracttrait(attr: TokenStream, item: TokenStream) -> TokenStream {
+    contract::contracttrait_impl(attr, item)
+}

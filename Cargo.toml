@@ -6,6 +6,7 @@ members = [
     "examples/*/Cargo.toml",
     "examples/errors/*",
     "examples/auth/*",
+    "examples/trait-test",
 ]
 
 
