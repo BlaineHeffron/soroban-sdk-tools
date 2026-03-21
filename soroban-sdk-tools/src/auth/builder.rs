@@ -272,7 +272,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
 }
 
 impl<'a, R, TryR> AsMockAuthInvoke<'a> for CallBuilder<'a, R, TryR> {
-    fn mock_auth_invocation(&self) -> MockAuthInvoke {
+    fn mock_auth_invocation(&self) -> MockAuthInvoke<'_> {
         let Self {
             contract,
             fn_name,
