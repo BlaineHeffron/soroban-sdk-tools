@@ -32,12 +32,13 @@
 //! For maximum security, use `impl_{trait_snake}!` instead of manually writing
 //! `#[contractimpl(contracttrait)]` blocks.
 
+use heck::ToSnakeCase;
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote};
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{
-    parse2, parse_quote, Attribute, Error, Expr, FnArg, Ident, ItemTrait, Pat, ReturnType,
-    Signature, TraitItem, TraitItemFn,
+    parse2, Attribute, Error, Expr, FnArg, Ident, ItemTrait, Pat, ReturnType, Signature, TraitItem,
+    TraitItemFn,
 };
 
 // -----------------------------------------------------------------------------
@@ -48,9 +49,9 @@ use syn::{
 #[derive(Debug, Clone)]
 enum AuthSource {
     /// `#[auth(Self::method)]` -- call method on the provider to get the address
-    ProviderMethod(Ident),
+    ProviderMethod { name: Ident, span: Span },
     /// `#[auth(param_name)]` -- use a function parameter directly
-    Param(Ident),
+    Param { name: Ident, span: Span },
 }
 
 /// Extract `#[auth(...)]` from a method's attributes, if present.
@@ -58,6 +59,7 @@ fn extract_auth_attr(attrs: &[Attribute]) -> syn::Result<Option<AuthSource>> {
     for attr in attrs {
         if attr.path().is_ident("auth") {
             let expr: Expr = attr.parse_args()?;
+            let attr_span = attr.bracket_token.span.join();
             match &expr {
                 // Self::method
                 Expr::Path(ep) if ep.path.segments.len() == 2 => {
@@ -69,12 +71,18 @@ fn extract_auth_attr(attrs: &[Attribute]) -> syn::Result<Option<AuthSource>> {
                             "expected `Self::method_name` or a parameter name",
                         ));
                     }
-                    return Ok(Some(AuthSource::ProviderMethod(second.clone())));
+                    return Ok(Some(AuthSource::ProviderMethod {
+                        name: second.clone(),
+                        span: attr_span,
+                    }));
                 }
                 // param_name
                 Expr::Path(ep) if ep.path.segments.len() == 1 => {
                     let name = &ep.path.segments[0].ident;
-                    return Ok(Some(AuthSource::Param(name.clone())));
+                    return Ok(Some(AuthSource::Param {
+                        name: name.clone(),
+                        span: attr_span,
+                    }));
                 }
                 _ => {
                     return Err(Error::new_spanned(
@@ -113,16 +121,16 @@ struct MethodInfo {
     auth: Option<AuthSource>,
     /// The function parameters (excluding `env`)
     params: Vec<ParamInfo>,
-    /// Whether the env parameter is a reference (&Env vs Env)
-    #[allow(dead_code)]
-    env_is_ref: bool,
+    /// The env parameter name (captured from the actual source)
+    env_name: Ident,
+    /// Span of the method signature (for diagnostics)
+    method_span: Span,
 }
 
 /// Information about a function parameter.
 struct ParamInfo {
     name: Ident,
     ty: syn::Type,
-    _is_ref: bool,
 }
 
 /// Check if a type is `Env` or `&Env`.
@@ -144,20 +152,14 @@ fn extract_method_info(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let attrs = strip_auth_attrs(&method.attrs);
     let sig = method.sig.clone();
     let name = sig.ident.clone();
+    let method_span = method.sig.ident.span();
 
     let mut params = Vec::new();
-    let mut env_is_ref = false;
-    let mut first = true;
+    let mut env_name = Ident::new("env", Span::call_site()); // default fallback
+    let mut found_env = false;
 
     for arg in &sig.inputs {
         if let FnArg::Typed(pat_type) = arg {
-            if first && is_env_type(&pat_type.ty) {
-                first = false;
-                env_is_ref = matches!(*pat_type.ty, syn::Type::Reference(_));
-                continue; // skip env parameter
-            }
-            first = false;
-
             let param_name = if let Pat::Ident(pi) = &*pat_type.pat {
                 pi.ident.clone()
             } else {
@@ -167,15 +169,20 @@ fn extract_method_info(method: &TraitItemFn) -> syn::Result<MethodInfo> {
                 ));
             };
 
-            let (ty, is_ref) = match &*pat_type.ty {
-                syn::Type::Reference(r) => (*r.elem.clone(), true),
-                other => (other.clone(), false),
+            if !found_env && is_env_type(&pat_type.ty) {
+                found_env = true;
+                env_name = param_name;
+                continue; // skip env parameter from params list
+            }
+
+            let ty = match &*pat_type.ty {
+                syn::Type::Reference(r) => (*r.elem.clone()),
+                other => other.clone(),
             };
 
             params.push(ParamInfo {
                 name: param_name,
                 ty,
-                _is_ref: is_ref,
             });
         }
     }
@@ -186,8 +193,46 @@ fn extract_method_info(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         attrs,
         auth,
         params,
-        env_is_ref,
+        env_name,
+        method_span,
     })
+}
+
+// -----------------------------------------------------------------------------
+// Auth validation
+// -----------------------------------------------------------------------------
+
+/// Validate auth sources against the trait's method and parameter names.
+fn validate_auth_sources(methods: &[MethodInfo]) -> syn::Result<()> {
+    let method_name_strings: Vec<String> = methods.iter().map(|m| m.name.to_string()).collect();
+
+    for method in methods {
+        if let Some(auth) = &method.auth {
+            match auth {
+                // ProviderMethod: don't validate at macro time because the method
+                // may come from a supertrait's Internal trait. Rust's type system
+                // will catch invalid method names when the generated code compiles.
+                AuthSource::ProviderMethod { .. } => {}
+                AuthSource::Param { name, span } => {
+                    let name_str = name.to_string();
+                    let param_names: Vec<String> =
+                        method.params.iter().map(|p| p.name.to_string()).collect();
+                    if !param_names.iter().any(|n| n == &name_str) {
+                        return Err(Error::new(
+                            *span,
+                            format!(
+                                "`#[auth({})]` references parameter `{}` which is not in this method's signature.\n\
+                                 Available parameters: {}",
+                                name, name,
+                                param_names.join(", ")
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
@@ -213,7 +258,6 @@ fn generate_internal_trait(
         })
         .collect();
 
-    // Filter doc attrs from the trait for the internal trait
     let doc_attrs: Vec<_> = trait_attrs
         .iter()
         .filter(|a| a.path().is_ident("doc"))
@@ -247,30 +291,32 @@ fn generate_outer_trait(
             let attrs = &m.attrs;
             let sig = &m.sig;
             let method_name = &m.name;
+            let span = m.method_span;
 
-            // Build delegation args
+            // Build delegation args using actual env name
             let delegate_args = build_delegate_args(m);
 
-            let env_arg = quote! { env };
+            let env_name = &m.env_name;
 
-            // Build auth check (if #[auth] present)
-            // Cache the auth address to avoid redundant storage reads
+            // Build auth check with quote_spanned! for diagnostics
             let auth_check = match &m.auth {
-                Some(AuthSource::ProviderMethod(resolver)) => {
-                    quote! {
-                        let __auth_addr = Self::Provider::#resolver(#env_arg);
+                Some(AuthSource::ProviderMethod { name: resolver, span: auth_span }) => {
+                    let s = *auth_span;
+                    quote_spanned! { s =>
+                        let __auth_addr = Self::Provider::#resolver(#env_name);
                         __auth_addr.require_auth();
                     }
                 }
-                Some(AuthSource::Param(param)) => {
-                    quote! {
+                Some(AuthSource::Param { name: param, span: auth_span }) => {
+                    let s = *auth_span;
+                    quote_spanned! { s =>
                         #param.require_auth();
                     }
                 }
                 None => quote! {},
             };
 
-            quote! {
+            quote_spanned! { span =>
                 #(#attrs)*
                 #sig {
                     #auth_check
@@ -280,7 +326,6 @@ fn generate_outer_trait(
         })
         .collect();
 
-    // Filter attrs
     let non_doc_attrs: Vec<_> = trait_attrs
         .iter()
         .filter(|a| !a.path().is_ident("doc") && !a.path().is_ident("auth"))
@@ -290,11 +335,18 @@ fn generate_outer_trait(
         .filter(|a| a.path().is_ident("doc"))
         .collect();
 
+    let provider_doc = format!(
+        "The provider type that implements [`{}Internal`]. \
+         Select a concrete provider (e.g., `SingleOwner`) to wire the business logic.",
+        trait_name
+    );
+
     quote! {
         #(#doc_attrs)*
         #(#non_doc_attrs)*
         #[soroban_sdk::contracttrait(#sdk_passthrough_attrs)]
         #vis trait #trait_name {
+            #[doc = #provider_doc]
             type Provider: #internal_trait_name;
 
             #(#default_methods)*
@@ -306,8 +358,9 @@ fn generate_outer_trait(
 fn build_delegate_args(method: &MethodInfo) -> TokenStream2 {
     let mut args = Vec::new();
 
-    let env_ident: Ident = parse_quote!(env);
-    args.push(quote! { #env_ident });
+    // Use the actual env parameter name from the source
+    let env_name = &method.env_name;
+    args.push(quote! { #env_name });
 
     for p in &method.params {
         let name = &p.name;
@@ -322,19 +375,14 @@ fn build_delegate_args(method: &MethodInfo) -> TokenStream2 {
 // -----------------------------------------------------------------------------
 
 /// Generate `impl_{trait_snake}!` helper macro for non-overridable auth wiring.
-///
-/// This produces a `macro_rules!` that generates a `#[contractimpl]` block
-/// (NOT `#[contractimpl(contracttrait)]`) with auth methods baked in.
-/// Since these are inherent methods, not trait defaults, they cannot be overridden.
 fn generate_sealed_impl_macro(
     trait_name: &Ident,
     methods: &[MethodInfo],
 ) -> TokenStream2 {
     let internal_trait_name = format_ident!("{}Internal", trait_name);
-    let trait_snake = to_snake_case(&trait_name.to_string());
+    let trait_snake = trait_name.to_string().to_snake_case();
     let macro_name = format_ident!("impl_{}", trait_snake);
 
-    // Generate method bodies for each method
     let method_impls: Vec<_> = methods
         .iter()
         .map(|m| {
@@ -342,15 +390,16 @@ fn generate_sealed_impl_macro(
             let sig = &m.sig;
             let delegate_args = build_delegate_args(m);
             let attrs = &m.attrs;
+            let env_name = &m.env_name;
 
             let auth_check = match &m.auth {
-                Some(AuthSource::ProviderMethod(resolver)) => {
+                Some(AuthSource::ProviderMethod { name: resolver, .. }) => {
                     quote! {
-                        let __auth_addr = <$provider as #internal_trait_name>::#resolver(env);
+                        let __auth_addr = <$provider as #internal_trait_name>::#resolver(#env_name);
                         __auth_addr.require_auth();
                     }
                 }
-                Some(AuthSource::Param(param)) => {
+                Some(AuthSource::Param { name: param, .. }) => {
                     quote! { #param.require_auth(); }
                 }
                 None => quote! {},
@@ -366,16 +415,19 @@ fn generate_sealed_impl_macro(
         })
         .collect();
 
+    let macro_doc = format!(
+        "Sealed implementation macro for `{}`. Auth methods are generated as \
+         inherent `#[contractimpl]` methods that cannot be overridden.\n\n\
+         Usage: `{}!(MyContract, MyProvider);`",
+        trait_name, macro_name
+    );
+
     quote! {
-        /// Sealed implementation macro for non-overridable auth enforcement.
-        ///
-        /// Usage: `impl_#trait_snake!(MyContract, MyProvider);`
-        ///
-        /// This generates a `#[contractimpl]` block where auth methods are
-        /// inherent methods (not trait defaults), making them impossible to override.
+        #[doc = #macro_doc]
         #[macro_export]
         macro_rules! #macro_name {
             ($contract:ty, $provider:ty) => {
+                #[automatically_derived]
                 #[soroban_sdk::contractimpl]
                 impl $contract {
                     #(#method_impls)*
@@ -383,22 +435,6 @@ fn generate_sealed_impl_macro(
             };
         }
     }
-}
-
-/// Convert PascalCase to snake_case.
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(c.to_lowercase().next().unwrap());
-        } else {
-            result.push(c);
-        }
-    }
-    result
 }
 
 // -----------------------------------------------------------------------------
@@ -412,7 +448,7 @@ fn generate_auth_client(
 ) -> TokenStream2 {
     let auth_client_name = format_ident!("{}AuthClient", trait_name);
     let client_name = format_ident!("{}Client", trait_name);
-    let alloc_alias = format_ident!("__alloc_{}", trait_name);
+    let alloc_alias = format_ident!("__ct_alloc_{}", trait_name.to_string().to_snake_case());
 
     let client_methods: Vec<_> = methods
         .iter()
@@ -429,11 +465,13 @@ fn generate_auth_client(
         /// This client wraps the standard `Client` and provides methods that
         /// return a `CallBuilder` for fluent authorization setup.
         #[cfg(not(target_family = "wasm"))]
+        #[automatically_derived]
         pub struct #auth_client_name<'a> {
             inner: #client_name<'a>,
         }
 
         #[cfg(not(target_family = "wasm"))]
+        #[automatically_derived]
         impl<'a> #auth_client_name<'a> {
             /// Create a new AuthClient wrapping a contract at the given address.
             pub fn new(env: &'a soroban_sdk::Env, address: &'a soroban_sdk::Address) -> Self {
@@ -463,10 +501,7 @@ fn generate_auth_client(
 }
 
 /// Generate a single AuthClient method that returns a CallBuilder.
-fn generate_auth_client_method(
-    method: &MethodInfo,
-    alloc_alias: &Ident,
-) -> TokenStream2 {
+fn generate_auth_client_method(method: &MethodInfo, alloc_alias: &Ident) -> TokenStream2 {
     let fn_name = &method.name;
     let try_fn_name = format_ident!("try_{}", fn_name);
     let fn_name_str = fn_name.to_string();
@@ -635,7 +670,6 @@ fn unpack_result_type(ty: &syn::Type) -> Option<(syn::Type, syn::Type)> {
 // -----------------------------------------------------------------------------
 
 /// Extract supertraits and map to Internal trait names.
-/// e.g., `Pausable: Ownable` becomes `PausableInternal: OwnableInternal`
 fn map_supertraits_to_internal(trait_def: &ItemTrait) -> TokenStream2 {
     let bounds: Vec<_> = trait_def
         .supertraits
@@ -697,6 +731,9 @@ fn contracttrait_inner(attr: TokenStream2, item: TokenStream2) -> syn::Result<To
         }
     }
 
+    // Validate auth sources reference actual methods/params
+    validate_auth_sources(&methods)?;
+
     let internal_supertraits = map_supertraits_to_internal(&trait_def);
 
     let internal_trait =
@@ -706,7 +743,6 @@ fn contracttrait_inner(attr: TokenStream2, item: TokenStream2) -> syn::Result<To
 
     let auth_client = generate_auth_client(trait_name, &methods);
 
-    // Generate sealed impl macro only if there are auth methods
     let has_auth_methods = methods.iter().any(|m| m.auth.is_some());
     let sealed_macro = if has_auth_methods {
         generate_sealed_impl_macro(trait_name, &methods)
