@@ -56,3 +56,17 @@ soroban-token-sdk = "25.0.2"
 soroban-poseidon = "25.0.0"
 soroban-workspace-contract-a-interface = { path = "workspace/contract_a_interface" }
 soroban-workspace-contract-a = { path = "workspace/contract_a" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true
