@@ -1,0 +1,32 @@
+[package]
+name = "soroban-token-contract"
+description = "Soroban standard token contract"
+version = "0.0.6"
+edition = "2021"
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk-tools = { workspace = true }
+soroban-sdk = { workspace = true }
+soroban-token-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk-tools = { workspace = true, features = ["testutils"] }
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+  "contract",
+  "libs/lean-imt",
+  "libs/zk",
+  "cli/circom2soroban",
+  "cli/coinutils",
+  "circuits/test/lean-imt-test",
+  "circuits/test/poseidon-test"
+]
+
+[workspace.dependencies]
+soroban-sdk = { version = "25.1.0" }
+soroban-poseidon = { version = "25.0.0" }
+
+[workspace.package]
+rust-version = "1.89.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+# For more information about this profile see https://soroban.stellar.org/docs/basic-tutorials/logging#cargotoml-profile
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

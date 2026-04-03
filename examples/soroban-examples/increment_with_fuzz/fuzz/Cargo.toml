@@ -1,0 +1,23 @@
+[package]
+name = "soroban-increment-with-fuzz-contract-fuzz"
+version = "0.0.0"
+publish = false
+rust-version = "1.80.0"
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+soroban-sdk = { version = "25.1.0", features = ["testutils"] }
+
+[dependencies.soroban-increment-with-fuzz-contract]
+path = ".."
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+bench = false
