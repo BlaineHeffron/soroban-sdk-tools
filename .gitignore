@@ -5,12 +5,3 @@ test_snapshots/
 reference/
 prompts/
 .DS_Store
-docs/*
-!docs/index.html
-!docs/migration.html
-!docs/examples.html
-!docs/styles.css
-!docs/script.js
-!docs/scerr-presentation.html
-!docs/scerr-presentation.md
-!docs/scerr-presentation.pdf
