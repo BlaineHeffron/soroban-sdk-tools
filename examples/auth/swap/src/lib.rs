@@ -243,10 +243,7 @@ impl SwapContract {
 
     /// Get a pending swap's details
     pub fn get_pending_swap(env: Env, swap_id: u64) -> PendingSwap {
-        Storage::new(&env)
-            .pending_swaps
-            .get(&swap_id)
-            .expect("swap not found")
+        Storage::get_pending_swaps(&env, &swap_id).expect("swap not found")
     }
 }
 

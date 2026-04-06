@@ -82,10 +82,9 @@ impl TokenContract {
     ///
     /// Requires authorization from the `owner` address.
     pub fn approve(env: Env, owner: Address, spender: Address, amount: i128) {
-        let storage = Storage::new(&env);
         // The owner must authorize this approval
         owner.require_auth();
-        storage.allowances.set(&(owner, spender), &amount);
+        Storage::set_allowances(&env, &(owner, spender), &amount);
     }
 
     /// Burn tokens from an address
@@ -100,15 +99,12 @@ impl TokenContract {
 
     /// Get the balance of an address
     pub fn balance(env: Env, addr: Address) -> i128 {
-        Storage::new(&env).balances.get(&addr).unwrap_or(0)
+        Storage::get_balances(&env, &addr).unwrap_or(0)
     }
 
     /// Get the allowance for a spender
     pub fn allowance(env: Env, owner: Address, spender: Address) -> i128 {
-        Storage::new(&env)
-            .allowances
-            .get(&(owner, spender))
-            .unwrap_or(0)
+        Storage::get_allowances(&env, &(owner, spender)).unwrap_or(0)
     }
 
     // --- Internal helpers ---
@@ -123,9 +119,7 @@ impl TokenContract {
     }
 
     fn receive_balance(env: &Env, addr: &Address, amount: i128) {
-        Storage::new(env)
-            .balances
-            .update(addr, |balance| balance.unwrap_or(0) + amount);
+        Storage::update_balances(env, addr, |balance| balance.unwrap_or(0) + amount);
     }
 
     fn spend_allowance(env: &Env, owner: &Address, spender: &Address, amount: i128) {
