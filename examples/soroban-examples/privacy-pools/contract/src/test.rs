@@ -14,17 +14,12 @@ use soroban_sdk_tools::{contractstorage, setup_mock_auth, InstanceItem, Instance
 #[contract]
 pub struct MockToken;
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct MockTokenStorage {
-    #[short_key = "admin"]
     admin: InstanceItem<Address>,
-    #[short_key = "decimal"]
     decimal: InstanceItem<u32>,
-    #[short_key = "name"]
     name: InstanceItem<String>,
-    #[short_key = "symbol"]
     symbol: InstanceItem<String>,
-    #[short_key = "bal"]
     balances: InstanceMap<Address, i128>,
 }
 

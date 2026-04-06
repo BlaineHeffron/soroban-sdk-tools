@@ -2,9 +2,8 @@
 use soroban_sdk::{contract, contractevent, contractimpl, Env};
 use soroban_sdk_tools::{contractstorage, InstanceItem};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "counter"]
     counter: InstanceItem<u32>,
 }
 

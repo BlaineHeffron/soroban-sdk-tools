@@ -12,13 +12,10 @@ use soroban_sdk::{
 };
 use soroban_sdk_tools::{contractstorage, scerr, InstanceItem, InstanceMap};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "root_hash"]
     root_hash: InstanceItem<BytesN<32>>,
-    #[short_key = "token_address"]
     token_address: InstanceItem<Address>,
-    #[short_key = "claimed"]
     claimed: InstanceMap<u32, ()>,
 }
 

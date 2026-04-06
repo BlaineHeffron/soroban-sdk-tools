@@ -5,9 +5,8 @@ use soroban_sdk::{
 };
 use soroban_sdk_tools::{contractstorage, scerr, PersistentItem};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "counter"]
     counter: PersistentItem<u32>,
 }
 

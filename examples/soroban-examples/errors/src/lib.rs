@@ -7,9 +7,8 @@ pub enum Error {
     LimitReached,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "counter"]
     counter: InstanceItem<u32>,
 }
 

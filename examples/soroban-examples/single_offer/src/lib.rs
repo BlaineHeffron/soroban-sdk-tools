@@ -25,9 +25,8 @@ pub struct Offer {
     pub buy_price: u32,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "offer"]
     offer: InstanceItem<Offer>,
 }
 
