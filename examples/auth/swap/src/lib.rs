@@ -15,6 +15,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk_tools::{contractstorage, InstanceItem, PersistentMap};
 
 /// Represents one side of a swap
 #[derive(Clone)]
@@ -28,16 +29,6 @@ pub struct SwapParty {
     pub want_min_amount: i128,
 }
 
-/// Storage key for pending swaps
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    /// A pending escrow swap by ID
-    PendingSwap(u64),
-    /// Next swap ID counter
-    SwapCounter,
-}
-
 /// A pending escrow swap
 #[derive(Clone)]
 #[contracttype]
@@ -48,6 +39,12 @@ pub struct PendingSwap {
     pub counterparty_amount: i128,
     pub deadline: u32,
     pub completed: bool,
+}
+
+#[contractstorage(auto_shorten = true)]
+struct Storage {
+    next_swap_id: InstanceItem<u64>,
+    pending_swaps: PersistentMap<u64, PendingSwap>,
 }
 
 #[contract]
@@ -160,6 +157,7 @@ impl SwapContract {
         counterparty_amount: i128,
         deadline: u32,
     ) -> u64 {
+        let storage = Storage::new(&env);
         // Initiator must authorize
         initiator.require_auth();
 
@@ -168,14 +166,8 @@ impl SwapContract {
         }
 
         // Get next swap ID
-        let swap_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::SwapCounter)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::SwapCounter, &(swap_id + 1));
+        let swap_id = storage.next_swap_id.get().unwrap_or(0);
+        storage.next_swap_id.set(&(swap_id + 1));
 
         // Store pending swap
         let pending = PendingSwap {
@@ -186,9 +178,7 @@ impl SwapContract {
             deadline,
             completed: false,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSwap(swap_id), &pending);
+        storage.pending_swaps.set(&swap_id, &pending);
 
         swap_id
     }
@@ -200,11 +190,8 @@ impl SwapContract {
     /// # Arguments
     /// * `swap_id` - The swap ID to complete
     pub fn complete_escrow(env: Env, swap_id: u64) {
-        let mut pending: PendingSwap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingSwap(swap_id))
-            .expect("swap not found");
+        let storage = Storage::new(&env);
+        let mut pending = storage.pending_swaps.get(&swap_id).expect("swap not found");
 
         if pending.completed {
             panic!("swap already completed");
@@ -220,9 +207,7 @@ impl SwapContract {
 
         // Mark as completed
         pending.completed = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSwap(swap_id), &pending);
+        storage.pending_swaps.set(&swap_id, &pending);
 
         // In production, we'd execute the token transfers here
     }
@@ -235,11 +220,8 @@ impl SwapContract {
     /// # Arguments
     /// * `swap_id` - The swap ID to cancel
     pub fn cancel_escrow(env: Env, swap_id: u64) {
-        let pending: PendingSwap = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingSwap(swap_id))
-            .expect("swap not found");
+        let storage = Storage::new(&env);
+        let pending = storage.pending_swaps.get(&swap_id).expect("swap not found");
 
         if pending.completed {
             panic!("swap already completed");
@@ -254,18 +236,16 @@ impl SwapContract {
         pending.initiator.require_auth();
 
         // Clean up
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PendingSwap(swap_id));
+        storage.pending_swaps.remove(&swap_id);
 
         // In production, we'd return escrowed tokens here
     }
 
     /// Get a pending swap's details
     pub fn get_pending_swap(env: Env, swap_id: u64) -> PendingSwap {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PendingSwap(swap_id))
+        Storage::new(&env)
+            .pending_swaps
+            .get(&swap_id)
             .expect("swap not found")
     }
 }

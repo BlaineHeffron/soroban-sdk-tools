@@ -11,23 +11,12 @@
 //! See `account` example for demonstration of an acount contract with
 //! a custom authentication scheme and a custom authorization policy.
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk_tools::{contractstorage, PersistentMap};
 
-#[contracttype]
-pub enum DataKey {
-    Counter(Address),
-}
-
-impl From<Address> for DataKey {
-    fn from(value: Address) -> Self {
-        Self::Counter(value)
-    }
-}
-
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    counters: PersistentMap<Address, u32, DataKey>,
+    counters: PersistentMap<Address, u32>,
 }
 
 #[contract]
@@ -57,19 +46,9 @@ impl IncrementContract {
         // included in args as it's guaranteed to be authenticated).
         // user.require_auth_for_args((value,).into_val(&env));
 
-        // Construct a key for the data being stored. Use an enum to set the
-        // contract up well for adding other types of data to be stored.
-        // Get the current count for the invoker.
-        let mut count: u32 = storage.counters.get(&user).unwrap_or_default();
-
-        // Increment the count.
-        count += value;
-
-        // Save the count.
-        storage.counters.set(&user, &count);
-
-        // Return the count to the caller.
-        count
+        storage
+            .counters
+            .update(&user, |count| count.unwrap_or_default() + value)
     }
 }
 

@@ -8,7 +8,7 @@
 #![no_std]
 use soroban_sdk::{
     auth::{Context, CustomAccountInterface},
-    bytesn, contract, contractimpl, contracttype,
+    bytesn, contract, contractimpl,
     crypto::{
         bls12_381::{G1Affine, G2Affine},
         Hash,
@@ -25,14 +25,6 @@ pub struct IncrementContract;
 // Curves](https://datatracker.ietf.org/doc/html/rfc9380) on requirements of
 // DST.
 const DST: &str = "BLSSIG-V01-CS01-with-BLS12381G2_XMD:SHA-256_SSWU_RO_";
-
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    Owners,
-    Counter,
-    Dst,
-}
 
 #[scerr]
 pub enum AccError {

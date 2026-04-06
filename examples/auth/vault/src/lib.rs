@@ -13,20 +13,15 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, Vec};
+use soroban_sdk_tools::{contractstorage, InstanceItem};
 
-/// Storage keys for the vault
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    /// The vault admin who can add/remove signers
-    Admin,
-    /// List of authorized signers
-    Signers,
-    /// Required number of signatures for withdrawal
-    Threshold,
-    /// Vault balance (simplified - in production, use a token contract)
-    Balance,
+#[contractstorage(auto_shorten = true)]
+struct Storage {
+    admin: InstanceItem<Address>,
+    signers: InstanceItem<Vec<Address>>,
+    threshold: InstanceItem<u32>,
+    balance: InstanceItem<i128>,
 }
 
 #[contract]
@@ -41,7 +36,8 @@ impl VaultContract {
     /// * `signers` - Initial list of authorized signers
     /// * `threshold` - Number of signatures required for withdrawal
     pub fn initialize(env: Env, admin: Address, signers: Vec<Address>, threshold: u32) {
-        if env.storage().instance().has(&DataKey::Admin) {
+        let storage = Storage::new(&env);
+        if storage.admin.has() {
             panic!("already initialized");
         }
 
@@ -50,22 +46,21 @@ impl VaultContract {
             panic!("invalid threshold");
         }
 
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Signers, &signers);
-        env.storage()
-            .instance()
-            .set(&DataKey::Threshold, &threshold);
-        env.storage().instance().set(&DataKey::Balance, &0i128);
+        storage.admin.set(&admin);
+        storage.signers.set(&signers);
+        storage.threshold.set(&threshold);
+        storage.balance.set(&0i128);
     }
 
     /// Add a new signer (admin only)
     ///
     /// Requires authorization from the admin.
     pub fn add_signer(env: Env, new_signer: Address) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let storage = Storage::new(&env);
+        let admin = storage.admin.get().unwrap();
         admin.require_auth();
 
-        let mut signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        let mut signers = storage.signers.get().unwrap();
 
         // Check not already a signer
         for i in 0..signers.len() {
@@ -75,18 +70,19 @@ impl VaultContract {
         }
 
         signers.push_back(new_signer);
-        env.storage().instance().set(&DataKey::Signers, &signers);
+        storage.signers.set(&signers);
     }
 
     /// Remove a signer (admin only)
     ///
     /// Requires authorization from the admin.
     pub fn remove_signer(env: Env, signer: Address) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let storage = Storage::new(&env);
+        let admin = storage.admin.get().unwrap();
         admin.require_auth();
 
-        let signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
-        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap();
+        let signers = storage.signers.get().unwrap();
+        let threshold = storage.threshold.get().unwrap();
 
         // Ensure we maintain minimum signers for threshold
         if signers.len() <= threshold {
@@ -108,39 +104,36 @@ impl VaultContract {
             panic!("not a signer");
         }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Signers, &new_signers);
+        storage.signers.set(&new_signers);
     }
 
     /// Update the signature threshold (admin only)
     ///
     /// Requires authorization from the admin.
     pub fn set_threshold(env: Env, new_threshold: u32) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let storage = Storage::new(&env);
+        let admin = storage.admin.get().unwrap();
         admin.require_auth();
 
-        let signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        let signers = storage.signers.get().unwrap();
 
         if new_threshold == 0 || new_threshold > signers.len() {
             panic!("invalid threshold");
         }
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Threshold, &new_threshold);
+        storage.threshold.set(&new_threshold);
     }
 
     /// Deposit funds to the vault
     ///
     /// Requires authorization from the depositor.
     pub fn deposit(env: Env, from: Address, amount: i128) {
+        let storage = Storage::new(&env);
         from.require_auth();
 
-        let balance: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::Balance, &(balance + amount));
+        storage
+            .balance
+            .update(|balance| balance.unwrap_or(0) + amount);
     }
 
     /// Withdraw funds from the vault
@@ -155,8 +148,9 @@ impl VaultContract {
     /// * `to` - Recipient address
     /// * `amount` - Amount to withdraw
     pub fn withdraw(env: Env, authorizers: Vec<Address>, to: Address, amount: i128) {
-        let signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
-        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap();
+        let storage = Storage::new(&env);
+        let signers = storage.signers.get().unwrap();
+        let threshold = storage.threshold.get().unwrap();
 
         // Verify we have enough authorizers
         if authorizers.len() < threshold {
@@ -186,13 +180,11 @@ impl VaultContract {
         }
 
         // Perform the withdrawal
-        let balance: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
+        let balance = storage.balance.get().unwrap_or(0);
         if balance < amount {
             panic!("insufficient balance");
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::Balance, &(balance - amount));
+        storage.balance.set(&(balance - amount));
 
         // In production, we'd transfer tokens to `to` here
         let _ = to;
@@ -200,17 +192,17 @@ impl VaultContract {
 
     /// Get the vault's balance
     pub fn balance(env: Env) -> i128 {
-        env.storage().instance().get(&DataKey::Balance).unwrap_or(0)
+        Storage::new(&env).balance.get().unwrap_or(0)
     }
 
     /// Get the list of signers
     pub fn get_signers(env: Env) -> Vec<Address> {
-        env.storage().instance().get(&DataKey::Signers).unwrap()
+        Storage::new(&env).signers.get().unwrap()
     }
 
     /// Get the current threshold
     pub fn get_threshold(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::Threshold).unwrap()
+        Storage::new(&env).threshold.get().unwrap()
     }
 }
 
