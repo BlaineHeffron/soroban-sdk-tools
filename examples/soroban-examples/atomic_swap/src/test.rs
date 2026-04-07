@@ -7,7 +7,6 @@ use soroban_sdk::{
     testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, MockAuth, MockAuthInvoke},
     token, Address, Env, IntoVal,
 };
-use soroban_sdk_tools::auth::setup_mock_auth;
 use token::Client as TokenClient;
 use token::StellarAssetClient as TokenAdminClient;
 
@@ -85,21 +84,27 @@ fn test_atomic_swap() {
     let (token_a, token_a_admin) = create_token_contract(&env, &token_admin);
     let (token_b, token_b_admin) = create_token_contract(&env, &token_admin);
 
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &token_a.address,
-        "mint",
-        (a.clone(), 1000_i128),
         &[&token_admin],
+        MockAuthInvoke {
+            contract: &token_a.address,
+            fn_name: "mint",
+            args: (a.clone(), 1000_i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     token_a_admin.mint(&a, &1000);
 
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &token_b.address,
-        "mint",
-        (b.clone(), 5000_i128),
         &[&token_admin],
+        MockAuthInvoke {
+            contract: &token_b.address,
+            fn_name: "mint",
+            args: (b.clone(), 5000_i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     token_b_admin.mint(&b, &5000);
 

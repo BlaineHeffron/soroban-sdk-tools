@@ -2,11 +2,10 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{storage::Temporary as _, Address as _, Ledger},
+    testutils::{storage::Temporary as _, Address as _, Ledger, MockAuthInvoke},
     token::TokenClient,
-    Address, Env,
+    Address, Env, IntoVal,
 };
-use soroban_sdk_tools::setup_mock_auth;
 
 #[test]
 fn test() {
@@ -31,12 +30,15 @@ fn test() {
 
     // Admin can always mint.
     let user = Address::generate(&env);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "mint",
-        (token.clone(), user.clone(), 123i128),
         &[&admin],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "mint",
+            args: (token.clone(), user.clone(), 123i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     mint_lock_client.mint(&token, &admin, &user, &123);
     assert_eq!(token_client.balance(&user), 123);
@@ -47,21 +49,27 @@ fn test() {
         limit: 100,
         epoch_length: EPOCH_LENGTH,
     };
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "set_minter",
-        (token.clone(), minter.clone(), config.clone()),
         &[&admin],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "set_minter",
+            args: (token.clone(), minter.clone(), config.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     mint_lock_client.set_minter(&token, &minter, &config);
     let user = Address::generate(&env);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "mint",
-        (token.clone(), user.clone(), 97i128),
         &[&minter],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "mint",
+            args: (token.clone(), user.clone(), 97i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     mint_lock_client.mint(&token, &minter, &user, &97i128);
     assert_eq!(token_client.balance(&user), 97);
@@ -108,12 +116,15 @@ fn test_disallow_negative() {
 
     // Admin can always mint.
     let user = Address::generate(&env);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "mint",
-        (token.clone(), user.clone(), -123i128),
         &[&admin],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "mint",
+            args: (token.clone(), user.clone(), -123i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(
         mint_lock_client.try_mint(&token, &admin, &user, &-123),
@@ -126,21 +137,27 @@ fn test_disallow_negative() {
         limit: 100,
         epoch_length: 17820,
     };
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "set_minter",
-        (token.clone(), minter.clone(), config.clone()),
         &[&admin],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "set_minter",
+            args: (token.clone(), minter.clone(), config.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     mint_lock_client.set_minter(&token, &minter, &config);
     let user = Address::generate(&env);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &mint_lock,
-        "mint",
-        (token.clone(), user.clone(), -1000i128),
         &[&minter],
+        MockAuthInvoke {
+            contract: &mint_lock,
+            fn_name: "mint",
+            args: (token.clone(), user.clone(), -1000i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(
         mint_lock_client.try_mint(&token, &minter, &user, &-1000i128),

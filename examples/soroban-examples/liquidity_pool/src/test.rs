@@ -9,7 +9,6 @@ use soroban_sdk::{
     token, Address, Env, IntoVal,
 };
 use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke};
-use soroban_sdk_tools::setup_mock_auth;
 
 fn create_token_contract<'a>(
     e: &Env,
@@ -31,7 +30,16 @@ fn create_liqpool_contract<'a>(
 }
 
 fn mock_mint_auth(e: &Env, token: &Address, admin: &Address, to: &Address, amount: i128) {
-    setup_mock_auth(e, token, "mint", (to.clone(), amount), &[admin]);
+    soroban_sdk_tools::setup_mock_auth(
+        e,
+        &[admin],
+        MockAuthInvoke {
+            contract: token,
+            fn_name: "mint",
+            args: (to.clone(), amount).into_val(e),
+            sub_invokes: &[],
+        },
+    );
 }
 
 fn mock_deposit_auth(
@@ -213,12 +221,15 @@ fn test() {
     assert_eq!(token2.balance(&liqpool.address), 51);
 
     e.cost_estimate().budget().reset_unlimited();
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &e,
-        &liqpool.address,
-        "withdraw",
-        (user1.clone(), 100_i128, 197_i128, 51_i128),
         &[&user1],
+        MockAuthInvoke {
+            contract: &liqpool.address,
+            fn_name: "withdraw",
+            args: (user1.clone(), 100_i128, 197_i128, 51_i128).into_val(&e),
+            sub_invokes: &[],
+        },
     );
     liqpool.withdraw(&user1, &100, &197, &51);
 
@@ -311,20 +322,26 @@ fn swap_reserve_one_nonzero_other_zero() {
 
     // Try to get to a situation where the reserves are 1 and 0.
     // It shouldn't be possible.
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &e,
-        &token2.address,
-        "transfer",
-        (user1.clone(), liqpool.address.clone(), 1_i128),
         &[&user1],
+        MockAuthInvoke {
+            contract: &token2.address,
+            fn_name: "transfer",
+            args: (user1.clone(), liqpool.address.clone(), 1_i128).into_val(&e),
+            sub_invokes: &[],
+        },
     );
     token2.transfer(&user1, &liqpool.address, &1);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &e,
-        &liqpool.address,
-        "swap",
-        (user1.clone(), false, 1_i128, 1_i128),
         &[&user1],
+        MockAuthInvoke {
+            contract: &liqpool.address,
+            fn_name: "swap",
+            args: (user1.clone(), false, 1_i128, 1_i128).into_val(&e),
+            sub_invokes: &[],
+        },
     );
     liqpool.swap(&user1, &false, &1, &1);
 }

@@ -9,7 +9,7 @@
 //! 2. **Multi-user auth**: Multiple addresses authorizing the same operation
 //! 3. **Simplified API**: Using AuthClient instead of manual MockAuth
 
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, MockAuthInvoke};
 use soroban_sdk::{contract, contractimpl, contracttype, vec, Address, Env, IntoVal, Vec};
 use soroban_sdk_tools::Signer;
 
@@ -248,12 +248,15 @@ fn test_side_by_side_multi_user_auth() {
     // ─────────────────────────────────────────────────────────────────────────
     // METHOD 2: setup_mock_auth helper (much simpler!)
     // ─────────────────────────────────────────────────────────────────────────
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "atomic_swap",
-        (alice, 150_i128, bob, 250_i128),
         &[alice, bob], // Both users authorize
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "atomic_swap",
+            args: (alice, 150_i128, bob, 250_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
     client.atomic_swap(alice, &150, bob, &250);
 }
@@ -421,12 +424,15 @@ fn test_multi_signer_vault_withdrawal() {
     let authorizers = &vec![env, signer1.clone(), signer2.clone()];
 
     // Using the setup_mock_auth helper for multi-user auth
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "withdraw",
-        (authorizers, recipient, 500_i128),
         &[signer1, signer2],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "withdraw",
+            args: (authorizers, recipient, 500_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.withdraw(authorizers, recipient, &500);
@@ -444,12 +450,15 @@ fn test_atomic_two_party_swap() {
     let bob = &Address::generate(env);
 
     // Use setup_mock_auth to set up auth for BOTH parties
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "atomic_swap",
-        (alice, 100_i128, bob, 200_i128),
         &[alice, bob],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "atomic_swap",
+            args: (alice, 100_i128, bob, 200_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.atomic_swap(alice, &100, bob, &200);
@@ -467,12 +476,15 @@ fn test_three_party_swap() {
     let party_c = &Address::generate(env);
 
     // All three parties must authorize
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "three_way_swap",
-        (party_a, party_b, party_c, 100_i128),
         &[party_a, party_b, party_c],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "three_way_swap",
+            args: (party_a, party_b, party_c, 100_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.three_way_swap(party_a, party_b, party_c, &100);
@@ -501,12 +513,15 @@ fn test_insufficient_signers_fails() {
     // Only 1 signer (needs 2)
     let authorizers = &vec![env, signer1.clone()];
 
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "withdraw",
-        (authorizers, recipient, 500_i128),
         &[signer1],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "withdraw",
+            args: (authorizers, recipient, 500_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because we need 2 signers
@@ -541,7 +556,16 @@ fn test_setup_mock_auth_single_authorizer() {
     let user = &Address::generate(env);
 
     // Use setup_mock_auth with single authorizer
-    soroban_sdk_tools::auth::setup_mock_auth(env, &contract_id, "action", (user,), &[user]);
+    soroban_sdk_tools::setup_mock_auth(
+        env,
+        &[user],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user,).into_val(env),
+            sub_invokes: &[],
+        },
+    );
 
     client.action(user);
 }
@@ -556,12 +580,15 @@ fn test_setup_mock_auth_multiple_authorizers() {
     let user2 = &Address::generate(env);
 
     // Use setup_mock_auth with multiple authorizers
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "dual_action",
-        (user1, user2),
         &[user1, user2],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "dual_action",
+            args: (user1, user2).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.dual_action(user1, user2);
@@ -576,12 +603,15 @@ fn test_setup_mock_auth_empty_authorizers_is_noop() {
     let user = Address::generate(env);
 
     // Empty authorizers should be a no-op (doesn't set up any mock auth)
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "action",
-        (user.clone(),),
         &[], // No authorizers
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user.clone(),).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because no auth was set up
@@ -629,12 +659,15 @@ fn test_setup_mock_auth_wrong_authorizer_fails() {
     let wrong_user = &Address::generate(env);
 
     // Set up auth for wrong user
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        &contract_id,
-        "action",
-        (user,),
         &[wrong_user], // Wrong authorizer!
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user,).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because user != wrong_user

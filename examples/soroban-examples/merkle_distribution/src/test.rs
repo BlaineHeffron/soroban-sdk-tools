@@ -3,8 +3,7 @@
 use super::*;
 use soroban_sdk::token::TokenClient;
 use soroban_sdk::Address;
-use soroban_sdk::{bytesn, testutils::Address as _, vec, Env};
-use soroban_sdk_tools::setup_mock_auth;
+use soroban_sdk::{bytesn, testutils::{Address as _, MockAuthInvoke}, vec, Env, IntoVal};
 use token::StellarAssetClient as TokenAdminClient;
 
 fn create_token_contract<'a>(e: &Env, admin: &Address) -> (TokenClient<'a>, TokenAdminClient<'a>) {
@@ -16,7 +15,16 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> (TokenClient<'a>, Toke
 }
 
 fn mock_mint_auth(e: &Env, token: &Address, admin: &Address, to: &Address, amount: i128) {
-    setup_mock_auth(e, token, "mint", (to.clone(), amount), &[admin]);
+    soroban_sdk_tools::setup_mock_auth(
+        e,
+        &[admin],
+        MockAuthInvoke {
+            contract: token,
+            fn_name: "mint",
+            args: (to.clone(), amount).into_val(e),
+            sub_invokes: &[],
+        },
+    );
 }
 
 #[test]

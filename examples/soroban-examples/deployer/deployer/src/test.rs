@@ -6,10 +6,9 @@ use crate::{Deployer, DeployerClient};
 use alloc::vec;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, MockAuthInvoke},
     Address, BytesN, Env, IntoVal, Val, Vec,
 };
-use soroban_sdk_tools::setup_mock_auth;
 use soroban_deployer_test_contract::ContractClient;
 
 const DEPLOYED_CONTRACT_WASM: &[u8] =
@@ -28,12 +27,15 @@ fn test() {
     // Deploy contract using deployer, and include an init function to call.
     let salt = BytesN::from_array(&env, &[0; 32]);
     let constructor_args: Vec<Val> = (5u32,).into_val(&env);
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &deployer_client.address,
-        "deploy",
-        (wasm_hash.clone(), salt.clone(), constructor_args.clone()),
         &[&admin],
+        MockAuthInvoke {
+            contract: &deployer_client.address,
+            fn_name: "deploy",
+            args: (wasm_hash.clone(), salt.clone(), constructor_args.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     let contract_id = deployer_client.deploy(&wasm_hash, &salt, &constructor_args);
 

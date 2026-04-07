@@ -8,7 +8,7 @@ use soroban_sdk::{
     testutils::{Address as TestAddress, MockAuth, MockAuthInvoke},
     vec, Address, Bytes, BytesN, Env, IntoVal, String, U256,
 };
-use soroban_sdk_tools::{contractstorage, setup_mock_auth, InstanceItem, InstanceMap};
+use soroban_sdk_tools::{contractstorage, InstanceItem, InstanceMap};
 
 // Mock token contract for testing
 #[contract]
@@ -314,7 +314,16 @@ fn setup_test_environment(env: &Env) -> (Address, Address, Address, Address) {
 }
 
 fn mock_mint_auth(env: &Env, token: &Address, token_admin: &Address, to: &Address, amount: i128) {
-    setup_mock_auth(env, token, "mint", (to.clone(), amount), &[token_admin]);
+    soroban_sdk_tools::setup_mock_auth(
+        env,
+        &[token_admin],
+        MockAuthInvoke {
+            contract: token,
+            fn_name: "mint",
+            args: (to.clone(), amount).into_val(env),
+            sub_invokes: &[],
+        },
+    );
 }
 
 fn mock_set_association_root_auth(
@@ -323,12 +332,15 @@ fn mock_set_association_root_auth(
     caller: &Address,
     association_root: &BytesN<32>,
 ) {
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        contract,
-        "set_association_root",
-        (caller.clone(), association_root.clone()),
         &[caller],
+        MockAuthInvoke {
+            contract,
+            fn_name: "set_association_root",
+            args: (caller.clone(), association_root.clone()).into_val(env),
+            sub_invokes: &[],
+        },
     );
 }
 
@@ -364,12 +376,15 @@ fn mock_withdraw_auth(
     proof: &Bytes,
     pub_signals: &Bytes,
 ) {
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        contract,
-        "withdraw",
-        (to.clone(), proof.clone(), pub_signals.clone()),
         &[to],
+        MockAuthInvoke {
+            contract,
+            fn_name: "withdraw",
+            args: (to.clone(), proof.clone(), pub_signals.clone()).into_val(env),
+            sub_invokes: &[],
+        },
     );
 }
 

@@ -10,12 +10,11 @@ use libfuzzer_sys::fuzz_target;
 use soroban_fuzzing_contract::*;
 use soroban_sdk::testutils::{
     arbitrary::{arbitrary, Arbitrary},
-    Address as _, Ledger, LedgerInfo,
+    Address as _, Ledger, LedgerInfo, MockAuthInvoke,
 };
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
-use soroban_sdk::{vec, Address, Env};
-use soroban_sdk_tools::setup_mock_auth;
+use soroban_sdk::{vec, Address, Env, IntoVal};
 
 #[derive(Arbitrary, Debug)]
 struct Input {
@@ -52,12 +51,15 @@ fuzz_target!(|input: Input| {
     let timelock_contract_id = env.register(ClaimableBalanceContract, ());
     let timelock_client = ClaimableBalanceContractClient::new(&env, &timelock_contract_id);
 
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         &env,
-        &token_contract_id,
-        "mint",
-        (depositor_address.clone(), i128::max_value()),
         &[&token_admin],
+        MockAuthInvoke {
+            contract: &token_contract_id,
+            fn_name: "mint",
+            args: (depositor_address.clone(), i128::max_value()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     token_admin_client.mint(&depositor_address, &i128::max_value());
 
@@ -68,18 +70,22 @@ fuzz_target!(|input: Input| {
             kind: TimeBoundKind::Before,
             timestamp: 123456,
         };
-        setup_mock_auth(
+        soroban_sdk_tools::setup_mock_auth(
             &env,
-            &timelock_contract_id,
-            "deposit",
-            (
-                depositor_address.clone(),
-                token_contract_id.clone(),
-                input.deposit_amount,
-                claimants.clone(),
-                time_bound.clone(),
-            ),
             &[&depositor_address],
+            MockAuthInvoke {
+                contract: &timelock_contract_id,
+                fn_name: "deposit",
+                args: (
+                    depositor_address.clone(),
+                    token_contract_id.clone(),
+                    input.deposit_amount,
+                    claimants.clone(),
+                    time_bound.clone(),
+                )
+                    .into_val(&env),
+                sub_invokes: &[],
+            },
         );
         let _ = timelock_client.try_deposit(
             &depositor_address,
@@ -94,12 +100,15 @@ fuzz_target!(|input: Input| {
 
     // Claim, then assert invariants.
     {
-        setup_mock_auth(
+        soroban_sdk_tools::setup_mock_auth(
             &env,
-            &timelock_contract_id,
-            "claim",
-            (claimant_address.clone(), input.claim_amount),
             &[&claimant_address],
+            MockAuthInvoke {
+                contract: &timelock_contract_id,
+                fn_name: "claim",
+                args: (claimant_address.clone(), input.claim_amount).into_val(&env),
+                sub_invokes: &[],
+            },
         );
         let _ = timelock_client.try_claim(&claimant_address, &input.claim_amount);
 

@@ -4,10 +4,9 @@ extern crate std;
 use crate::{contract::Token, TokenClient};
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, MockAuthInvoke},
     Address, Env, FromVal, IntoVal, String, Symbol,
 };
-use soroban_sdk_tools::setup_mock_auth;
 
 fn create_token<'a>(e: &Env, admin: &Address) -> TokenClient<'a> {
     let token_contract = e.register(
@@ -33,13 +32,7 @@ fn test() {
     let user3 = Address::generate(&e);
     let token = create_token(&e, &admin1);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "mint",
-        (user1.clone(), 1000_i128),
-        &[&admin1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&admin1], MockAuthInvoke { contract: &token.address, fn_name: "mint", args: (user1.clone(), 1000_i128).into_val(&e), sub_invokes: &[] });
     token.mint(&user1, &1000);
     assert_eq!(
         e.auths(),
@@ -57,13 +50,7 @@ fn test() {
     );
     assert_eq!(token.balance(&user1), 1000);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "approve",
-        (user2.clone(), user3.clone(), 500_i128, 200_u32),
-        &[&user2],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user2], MockAuthInvoke { contract: &token.address, fn_name: "approve", args: (user2.clone(), user3.clone(), 500_i128, 200_u32).into_val(&e), sub_invokes: &[] });
     token.approve(&user2, &user3, &500, &200);
     assert_eq!(
         e.auths(),
@@ -81,13 +68,7 @@ fn test() {
     );
     assert_eq!(token.allowance(&user2, &user3), 500);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer",
-        (user1.clone(), user2.clone(), 600_i128),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "transfer", args: (user1.clone(), user2.clone(), 600_i128).into_val(&e), sub_invokes: &[] });
     token.transfer(&user1, &user2, &600);
     assert_eq!(
         e.auths(),
@@ -106,13 +87,7 @@ fn test() {
     assert_eq!(token.balance(&user1), 400);
     assert_eq!(token.balance(&user2), 600);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer_from",
-        (user3.clone(), user2.clone(), user1.clone(), 400_i128),
-        &[&user3],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user3], MockAuthInvoke { contract: &token.address, fn_name: "transfer_from", args: (user3.clone(), user2.clone(), user1.clone(), 400_i128).into_val(&e), sub_invokes: &[] });
     token.transfer_from(&user3, &user2, &user1, &400);
     assert_eq!(
         e.auths(),
@@ -131,24 +106,12 @@ fn test() {
     assert_eq!(token.balance(&user1), 800);
     assert_eq!(token.balance(&user2), 200);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer",
-        (user1.clone(), user3.clone(), 300_i128),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "transfer", args: (user1.clone(), user3.clone(), 300_i128).into_val(&e), sub_invokes: &[] });
     token.transfer(&user1, &user3, &300);
     assert_eq!(token.balance(&user1), 500);
     assert_eq!(token.balance(&user3), 300);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "set_admin",
-        (admin2.clone(),),
-        &[&admin1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&admin1], MockAuthInvoke { contract: &token.address, fn_name: "set_admin", args: (admin2.clone(),).into_val(&e), sub_invokes: &[] });
     token.set_admin(&admin2);
     assert_eq!(
         e.auths(),
@@ -166,22 +129,10 @@ fn test() {
     );
 
     // Increase to 500
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "approve",
-        (user2.clone(), user3.clone(), 500_i128, 200_u32),
-        &[&user2],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user2], MockAuthInvoke { contract: &token.address, fn_name: "approve", args: (user2.clone(), user3.clone(), 500_i128, 200_u32).into_val(&e), sub_invokes: &[] });
     token.approve(&user2, &user3, &500, &200);
     assert_eq!(token.allowance(&user2, &user3), 500);
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "approve",
-        (user2.clone(), user3.clone(), 0_i128, 200_u32),
-        &[&user2],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user2], MockAuthInvoke { contract: &token.address, fn_name: "approve", args: (user2.clone(), user3.clone(), 0_i128, 200_u32).into_val(&e), sub_invokes: &[] });
     token.approve(&user2, &user3, &0, &200);
     assert_eq!(
         e.auths(),
@@ -209,33 +160,15 @@ fn test_burn() {
     let user2 = Address::generate(&e);
     let token = create_token(&e, &admin);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "mint",
-        (user1.clone(), 1000_i128),
-        &[&admin],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&admin], MockAuthInvoke { contract: &token.address, fn_name: "mint", args: (user1.clone(), 1000_i128).into_val(&e), sub_invokes: &[] });
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "approve",
-        (user1.clone(), user2.clone(), 500_i128, 200_u32),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "approve", args: (user1.clone(), user2.clone(), 500_i128, 200_u32).into_val(&e), sub_invokes: &[] });
     token.approve(&user1, &user2, &500, &200);
     assert_eq!(token.allowance(&user1, &user2), 500);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "burn_from",
-        (user2.clone(), user1.clone(), 500_i128),
-        &[&user2],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user2], MockAuthInvoke { contract: &token.address, fn_name: "burn_from", args: (user2.clone(), user1.clone(), 500_i128).into_val(&e), sub_invokes: &[] });
     token.burn_from(&user2, &user1, &500);
     assert_eq!(
         e.auths(),
@@ -256,13 +189,7 @@ fn test_burn() {
     assert_eq!(token.balance(&user1), 500);
     assert_eq!(token.balance(&user2), 0);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "burn",
-        (user1.clone(), 500_i128),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "burn", args: (user1.clone(), 500_i128).into_val(&e), sub_invokes: &[] });
     token.burn(&user1, &500);
     assert_eq!(
         e.auths(),
@@ -293,23 +220,11 @@ fn transfer_insufficient_balance() {
     let user2 = Address::generate(&e);
     let token = create_token(&e, &admin);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "mint",
-        (user1.clone(), 1000_i128),
-        &[&admin],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&admin], MockAuthInvoke { contract: &token.address, fn_name: "mint", args: (user1.clone(), 1000_i128).into_val(&e), sub_invokes: &[] });
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer",
-        (user1.clone(), user2.clone(), 1001_i128),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "transfer", args: (user1.clone(), user2.clone(), 1001_i128).into_val(&e), sub_invokes: &[] });
     token.transfer(&user1, &user2, &1001);
 }
 
@@ -324,33 +239,15 @@ fn transfer_from_insufficient_allowance() {
     let user3 = Address::generate(&e);
     let token = create_token(&e, &admin);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "mint",
-        (user1.clone(), 1000_i128),
-        &[&admin],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&admin], MockAuthInvoke { contract: &token.address, fn_name: "mint", args: (user1.clone(), 1000_i128).into_val(&e), sub_invokes: &[] });
     token.mint(&user1, &1000);
     assert_eq!(token.balance(&user1), 1000);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "approve",
-        (user1.clone(), user3.clone(), 100_i128, 200_u32),
-        &[&user1],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user1], MockAuthInvoke { contract: &token.address, fn_name: "approve", args: (user1.clone(), user3.clone(), 100_i128, 200_u32).into_val(&e), sub_invokes: &[] });
     token.approve(&user1, &user3, &100, &200);
     assert_eq!(token.allowance(&user1, &user3), 100);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer_from",
-        (user3.clone(), user1.clone(), user2.clone(), 101_i128),
-        &[&user3],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&user3], MockAuthInvoke { contract: &token.address, fn_name: "transfer_from", args: (user3.clone(), user1.clone(), user2.clone(), 101_i128).into_val(&e), sub_invokes: &[] });
     token.transfer_from(&user3, &user1, &user2, &101);
 }
 
@@ -383,13 +280,7 @@ fn test_zero_allowance() {
     let from = Address::generate(&e);
     let token = create_token(&e, &admin);
 
-    setup_mock_auth(
-        &e,
-        &token.address,
-        "transfer_from",
-        (spender.clone(), from.clone(), spender.clone(), 0_i128),
-        &[&spender],
-    );
+    soroban_sdk_tools::setup_mock_auth(&e, &[&spender], MockAuthInvoke { contract: &token.address, fn_name: "transfer_from", args: (spender.clone(), from.clone(), spender.clone(), 0_i128).into_val(&e), sub_invokes: &[] });
     token.transfer_from(&spender, &from, &spender, &0);
     assert!(token.get_allowance(&from, &spender).is_none());
 }

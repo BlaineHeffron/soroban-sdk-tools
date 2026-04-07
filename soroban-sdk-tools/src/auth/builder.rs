@@ -240,7 +240,16 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
         if !signers.is_empty() {
             setup_real_auth(env, contract, fn_name, args, signers);
         } else {
-            setup_mock_auth(env, contract, fn_name, args, authorizers);
+            setup_mock_auth(
+                env,
+                authorizers,
+                MockAuthInvoke {
+                    contract,
+                    fn_name,
+                    args,
+                    sub_invokes: &[],
+                },
+            );
         }
     }
 
@@ -315,32 +324,13 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
 ///     &[from.clone()],
 /// );
 /// ```
-pub fn setup_mock_auth<A>(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: A,
-    authorizers: &[&Address],
-) where
-    A: IntoVal<Env, Vec<Val>>,
-{
+pub fn setup_mock_auth<'a>(env: &Env, authorizers: &[&Address], invoke: MockAuthInvoke<'a>) {
     // If no authorizers specified, clear any prior mock auth state
     // (e.g. mock_all_auths) so calls run with no authorization.
     if authorizers.is_empty() {
         env.mock_auths(&[]);
         return;
     }
-
-    // Convert args to Vec<Val>
-    let args_val: Vec<Val> = args.into_val(env);
-
-    // Create the shared MockAuthInvoke that all authorizers will reference
-    let invoke = MockAuthInvoke {
-        contract,
-        fn_name,
-        args: args_val,
-        sub_invokes: &[],
-    };
 
     // Build MockAuth entries for each authorizer
     // Each authorizer gets a separate MockAuth entry for the same invocation

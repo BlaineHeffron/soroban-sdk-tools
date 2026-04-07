@@ -3,10 +3,9 @@
 extern crate std;
 
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, MockAuthInvoke},
     Address, BytesN, Env, Executable,
 };
-use soroban_sdk_tools::setup_mock_auth;
 
 use crate::{UpgradeableContract, UpgradeableContractClient};
 
@@ -32,7 +31,16 @@ fn test() {
 
     assert!(client.try_upgrade(&new_wasm_hash).is_err());
 
-    setup_mock_auth(&env, &contract_id, "upgrade", (new_wasm_hash.clone(),), &[&admin]);
+    soroban_sdk_tools::setup_mock_auth(
+        &env,
+        &[&admin],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "upgrade",
+            args: (new_wasm_hash.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    );
     client.upgrade(&new_wasm_hash);
     assert_eq!(1, client.version());
 }
