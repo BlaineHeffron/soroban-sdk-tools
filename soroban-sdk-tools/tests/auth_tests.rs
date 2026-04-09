@@ -250,10 +250,13 @@ fn test_side_by_side_multi_user_auth() {
     // ─────────────────────────────────────────────────────────────────────────
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "atomic_swap",
-        (alice, 150_i128, bob, 250_i128),
         &[alice, bob], // Both users authorize
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "atomic_swap",
+            args: (alice, 150_i128, bob, 250_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
     client.atomic_swap(alice, &150, bob, &250);
 }
@@ -423,10 +426,13 @@ fn test_multi_signer_vault_withdrawal() {
     // Using the setup_mock_auth helper for multi-user auth
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "withdraw",
-        (authorizers, recipient, 500_i128),
         &[signer1, signer2],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "withdraw",
+            args: (authorizers, recipient, 500_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.withdraw(authorizers, recipient, &500);
@@ -446,10 +452,13 @@ fn test_atomic_two_party_swap() {
     // Use setup_mock_auth to set up auth for BOTH parties
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "atomic_swap",
-        (alice, 100_i128, bob, 200_i128),
         &[alice, bob],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "atomic_swap",
+            args: (alice, 100_i128, bob, 200_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.atomic_swap(alice, &100, bob, &200);
@@ -469,10 +478,13 @@ fn test_three_party_swap() {
     // All three parties must authorize
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "three_way_swap",
-        (party_a, party_b, party_c, 100_i128),
         &[party_a, party_b, party_c],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "three_way_swap",
+            args: (party_a, party_b, party_c, 100_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.three_way_swap(party_a, party_b, party_c, &100);
@@ -503,10 +515,13 @@ fn test_insufficient_signers_fails() {
 
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "withdraw",
-        (authorizers, recipient, 500_i128),
         &[signer1],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "withdraw",
+            args: (authorizers, recipient, 500_i128).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because we need 2 signers
@@ -541,7 +556,16 @@ fn test_setup_mock_auth_single_authorizer() {
     let user = &Address::generate(env);
 
     // Use setup_mock_auth with single authorizer
-    soroban_sdk_tools::auth::setup_mock_auth(env, &contract_id, "action", (user,), &[user]);
+    soroban_sdk_tools::auth::setup_mock_auth(
+        env,
+        &[user],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user,).into_val(env),
+            sub_invokes: &[],
+        },
+    );
 
     client.action(user);
 }
@@ -558,10 +582,13 @@ fn test_setup_mock_auth_multiple_authorizers() {
     // Use setup_mock_auth with multiple authorizers
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "dual_action",
-        (user1, user2),
         &[user1, user2],
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "dual_action",
+            args: (user1, user2).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     client.dual_action(user1, user2);
@@ -578,10 +605,13 @@ fn test_setup_mock_auth_empty_authorizers_is_noop() {
     // Empty authorizers should be a no-op (doesn't set up any mock auth)
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "action",
-        (user.clone(),),
         &[], // No authorizers
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user.clone(),).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because no auth was set up
@@ -631,10 +661,13 @@ fn test_setup_mock_auth_wrong_authorizer_fails() {
     // Set up auth for wrong user
     soroban_sdk_tools::auth::setup_mock_auth(
         env,
-        &contract_id,
-        "action",
-        (user,),
         &[wrong_user], // Wrong authorizer!
+        soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (user,).into_val(env),
+            sub_invokes: &[],
+        },
     );
 
     // This should fail because user != wrong_user
