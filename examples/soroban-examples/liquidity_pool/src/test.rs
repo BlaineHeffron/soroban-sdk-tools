@@ -256,7 +256,7 @@ fn test() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "both amounts must be strictly positive")]
 fn deposit_amount_zero_should_panic() {
     let e = Env::default();
 
@@ -296,7 +296,7 @@ fn deposit_amount_zero_should_panic() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "not enough token to buy")]
 fn swap_reserve_one_nonzero_other_zero() {
     let e = Env::default();
 

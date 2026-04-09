@@ -9,6 +9,7 @@ use soroban_sdk::{contract, contractimpl, Address, Env};
 use soroban_sdk_tools::{contractstorage, InstanceItem, PersistentMap};
 
 #[contractstorage(auto_shorten = true)]
+#[allow(dead_code)] // contractstorage generates static accessors that bypass these fields
 struct Storage {
     admin: InstanceItem<Address>,
     balances: PersistentMap<Address, i128>,
@@ -17,21 +18,6 @@ struct Storage {
 
 #[contract]
 pub struct TokenContract;
-
-/// Token error codes
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum TokenError {
-    InsufficientBalance = 1,
-    InsufficientAllowance = 2,
-    Unauthorized = 3,
-}
-
-impl From<TokenError> for soroban_sdk::Error {
-    fn from(e: TokenError) -> Self {
-        soroban_sdk::Error::from_contract_error(e as u32)
-    }
-}
 
 #[contractimpl]
 impl TokenContract {

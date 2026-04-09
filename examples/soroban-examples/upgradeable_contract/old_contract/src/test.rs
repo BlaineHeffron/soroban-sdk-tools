@@ -4,16 +4,17 @@ extern crate std;
 
 use soroban_sdk::{
     testutils::{Address as _, MockAuthInvoke},
-    Address, BytesN, Env, Executable, IntoVal,
+    Address, Env, IntoVal,
 };
 
 use crate::{UpgradeableContract, UpgradeableContractClient};
 
-fn current_wasm_hash(contract_id: &Address) -> BytesN<32> {
-    match contract_id.executable() {
-        Some(Executable::Wasm(hash)) => hash,
-        _ => panic!("expected registered contract address to contain wasm executable"),
-    }
+// Pre-built wasm of the new contract version, used to obtain a fresh wasm
+// hash to upgrade to.
+mod new_contract {
+    soroban_sdk::contractimport!(
+        file = "../../fixtures/soroban_upgradeable_contract_new_contract.wasm"
+    );
 }
 
 #[test]
@@ -27,8 +28,10 @@ fn test() {
 
     assert_eq!(1, client.version());
 
-    let new_wasm_hash = current_wasm_hash(&contract_id);
+    // Upload the new contract wasm and use its hash to upgrade.
+    let new_wasm_hash = env.deployer().upload_contract_wasm(new_contract::WASM);
 
+    // Without auth, the upgrade should fail.
     assert!(client.try_upgrade(&new_wasm_hash).is_err());
 
     soroban_sdk_tools::setup_mock_auth(
@@ -42,5 +45,7 @@ fn test() {
         },
     );
     client.upgrade(&new_wasm_hash);
-    assert_eq!(1, client.version());
+
+    // After upgrade, version() now comes from new_contract and returns 2.
+    assert_eq!(2, client.version());
 }

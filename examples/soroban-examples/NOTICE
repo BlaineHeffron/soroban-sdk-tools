@@ -1,0 +1,14 @@
+soroban-sdk-tools / examples / soroban-examples
+Copyright (c) Stellar Development Foundation and contributors.
+
+This directory contains a port of contracts from
+https://github.com/stellar/soroban-examples (Apache-2.0), modified to use
+the soroban-sdk-tools `contractstorage` macro and related helpers.
+
+The original Apache-2.0 license text is included in this directory's
+LICENSE file. See the upstream repository for the original copyright
+holders and contribution history.
+
+Sub-projects with their own license terms:
+
+- privacy-pools/  — see privacy-pools/LICENSE (third-party)

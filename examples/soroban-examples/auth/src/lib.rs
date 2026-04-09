@@ -12,11 +12,14 @@
 //! a custom authentication scheme and a custom authorization policy.
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env};
-use soroban_sdk_tools::{contractstorage, PersistentMap};
+use soroban_sdk_tools::{contractstorage, InstanceMap};
 
+// Mirrors upstream stellar/soroban-examples: counters live in instance
+// storage so that the whole map shares one TTL bump and one storage entry.
 #[contractstorage(auto_shorten = true)]
+#[allow(dead_code)] // contractstorage generates static accessors that bypass the field
 struct Storage {
-    counters: PersistentMap<Address, u32>,
+    counters: InstanceMap<Address, u32>,
 }
 
 #[contract]

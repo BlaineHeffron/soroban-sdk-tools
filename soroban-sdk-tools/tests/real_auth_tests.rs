@@ -3,8 +3,8 @@
 //! Tests Ed25519, Secp256k1, Secp256r1 key types using the Signer trait
 //! and CallBuilder.sign() pattern.
 
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::testutils::{Address as _, MockAuthInvoke};
+use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal};
 use soroban_sdk_tools::{Keypair, Secp256k1Keypair, Secp256r1Keypair, Signer};
 
 // Import the token contract WASM
@@ -67,10 +67,13 @@ fn test_real_auth_ed25519_multi_signer() {
 
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "dual_action",
-        (alice.address().clone(), bob.address().clone()),
         &[&alice, &bob],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "dual_action",
+            args: (alice.address().clone(), bob.address().clone()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.dual_action(alice.address(), bob.address());
@@ -89,10 +92,13 @@ fn test_real_auth_ed25519_wrong_signer_fails() {
     // Sign with wrong keypair - should fail
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "action",
-        (alice.address().clone(),),
-        &[&wrong],
+        &[&wrong as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (alice.address().clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.action(alice.address());
@@ -112,10 +118,13 @@ fn test_real_auth_secp256k1_single() {
 
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "action",
-        (alice_k1.address().clone(),),
-        &[&alice_k1],
+        &[&alice_k1 as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (alice_k1.address().clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.action(alice_k1.address());
@@ -156,10 +165,13 @@ fn test_real_auth_secp256k1_wrong_key_fails() {
     // Sign with wrong key - should fail
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "action",
-        (alice_k1.address().clone(),),
-        &[&wrong_k1],
+        &[&wrong_k1 as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (alice_k1.address().clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.action(alice_k1.address());
@@ -179,10 +191,13 @@ fn test_real_auth_secp256r1_single() {
 
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "action",
-        (alice_r1.address().clone(),),
-        &[&alice_r1],
+        &[&alice_r1 as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (alice_r1.address().clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.action(alice_r1.address());
@@ -222,10 +237,13 @@ fn test_real_auth_secp256r1_wrong_key_fails() {
 
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "action",
-        (alice_r1.address().clone(),),
-        &[&wrong_r1],
+        &[&wrong_r1 as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "action",
+            args: (alice_r1.address().clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.action(alice_r1.address());
@@ -247,10 +265,13 @@ fn test_real_auth_mixed_signers() {
     // Both an Ed25519 and a Secp256k1 signer authorize the same call
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "dual_action",
-        (alice.address().clone(), bob_k1.address().clone()),
-        &[&alice, &bob_k1],
+        &[&alice as &dyn Signer, &bob_k1 as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "dual_action",
+            args: (alice.address().clone(), bob_k1.address().clone()).into_val(&env),
+            sub_invokes: &[],
+        },
     );
 
     client.dual_action(alice.address(), bob_k1.address());
@@ -272,10 +293,13 @@ fn test_setup_real_auth_standalone() {
     // Direct function usage without CallBuilder
     soroban_sdk_tools::setup_real_auth(
         &env,
-        &contract_id,
-        "transfer",
-        (alice.address().clone(), bob.clone(), 300_i128),
-        &[&alice],
+        &[&alice as &dyn Signer],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "transfer",
+            args: (alice.address().clone(), bob.clone(), 300_i128).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     client.transfer(alice.address(), &bob, &300);
 
