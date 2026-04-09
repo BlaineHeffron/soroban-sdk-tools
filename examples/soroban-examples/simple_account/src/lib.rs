@@ -1,4 +1,4 @@
-//! This a minimal exapmle of an account contract.
+//! This a minimal example of an account contract.
 //!
 //! The account is owned by a single ed25519 public key that is also used for
 //! authentication.

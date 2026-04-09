@@ -1,3 +1,11 @@
+//! NOTE: This port deviates from upstream stellar/soroban-examples
+//! `liquidity_pool` in one significant way: the upstream example deploys a
+//! separate share-token contract from inside the LP and delegates share
+//! tracking to it (demonstrating how to deploy and call into another
+//! contract from a contract). For simplicity this port keeps share balances
+//! in a `PersistentMap<Address, i128>` directly on the LP contract. If
+//! you're using this as a reference for the contract-deploy-from-contract
+//! pattern, see upstream instead.
 #![no_std]
 
 mod test;

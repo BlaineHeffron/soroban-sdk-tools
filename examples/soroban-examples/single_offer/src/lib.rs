@@ -139,7 +139,7 @@ impl SingleOffer {
 
     // Updates the price.
     // Must be authorized by seller.
-    pub fn updt_price(e: Env, sell_price: u32, buy_price: u32) {
+    pub fn update_price(e: Env, sell_price: u32, buy_price: u32) {
         if buy_price == 0 || sell_price == 0 {
             panic!("zero price is not allowed");
         }
