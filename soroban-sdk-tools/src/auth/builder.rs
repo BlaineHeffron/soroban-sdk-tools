@@ -24,49 +24,49 @@ std::thread_local! {
     static NONCE_COUNTER: Cell<i64> = const { Cell::new(0) };
 }
 
-/// Build and register real (cryptographically signed) authorization entries.
-///
-/// For each signer, this constructs a `SorobanAuthorizationEntry` with
-/// proper `SorobanCredentials::Address` containing a real signature over the
-/// authorization payload hash.
-///
-/// # Arguments
-///
-/// * `env` - The Soroban environment
-/// * `contract` - The contract address being called
-/// * `fn_name` - The function name being invoked
-/// * `args` - The function arguments
-/// * `signers` - The signers that will authorize this invocation
-pub fn setup_real_auth<A>(
-    env: &Env,
-    contract: &Address,
-    fn_name: &str,
-    args: A,
-    signers: &[&dyn Signer],
-) where
-    A: IntoVal<Env, Vec<Val>>,
-{
-    if signers.is_empty() {
-        return;
-    }
-
-    let args_val: Vec<Val> = args.into_val(env);
-    // Convert soroban_sdk::Vec<Val> to xdr vec of ScVal
+/// Convert a [`MockAuthInvoke`] tree into a [`SorobanAuthorizedInvocation`]
+/// XDR structure, recursively converting all sub-invocations.
+fn mock_invoke_to_xdr(env: &Env, invoke: &MockAuthInvoke) -> SorobanAuthorizedInvocation {
     let mut xdr_args: StdVec<ScVal> = StdVec::new();
-    for i in 0..args_val.len() {
-        let val: Val = args_val.get(i).unwrap();
+    for i in 0..invoke.args.len() {
+        let val: Val = invoke.args.get(i).unwrap();
         let sc_val = ScVal::try_from_val(env, &val).unwrap();
         xdr_args.push(sc_val);
     }
 
-    let root_invocation = SorobanAuthorizedInvocation {
+    let sub_invocations: StdVec<SorobanAuthorizedInvocation> = invoke
+        .sub_invokes
+        .iter()
+        .map(|sub| mock_invoke_to_xdr(env, sub))
+        .collect();
+
+    SorobanAuthorizedInvocation {
         function: SorobanAuthorizedFunction::ContractFn(InvokeContractArgs {
-            contract_address: ScAddress::from(contract),
-            function_name: ScSymbol(fn_name.try_into().unwrap()),
+            contract_address: ScAddress::from(invoke.contract),
+            function_name: ScSymbol(invoke.fn_name.try_into().unwrap()),
             args: xdr_args.try_into().unwrap(),
         }),
-        sub_invocations: Default::default(),
-    };
+        sub_invocations: sub_invocations.try_into().unwrap(),
+    }
+}
+
+/// Build and register real (cryptographically signed) authorization entries.
+///
+/// For each signer, this constructs a `SorobanAuthorizationEntry` with
+/// proper `SorobanCredentials::Address` containing a real signature over the
+/// authorization payload hash, including any nested sub-invocations.
+///
+/// # Arguments
+///
+/// * `env` - The Soroban environment
+/// * `signers` - The signers that will authorize this invocation
+/// * `invoke` - The invocation tree (root + sub-invocations) to sign
+pub fn setup_real_auth<'a>(env: &Env, signers: &[&dyn Signer], invoke: MockAuthInvoke<'a>) {
+    if signers.is_empty() {
+        return;
+    }
+
+    let root_invocation = mock_invoke_to_xdr(env, &invoke);
 
     let curr_ledger = env.ledger().sequence();
     let max_ttl = env.storage().max_ttl();
@@ -90,7 +90,6 @@ pub fn setup_real_auth<A>(
             invocation: root_invocation.clone(),
         });
 
-        // Serialize and hash the preimage
         let mut buf = StdVec::<u8>::new();
         preimage
             .write_xdr(&mut Limited::new(&mut buf, Limits::none()))
@@ -147,6 +146,7 @@ pub struct CallBuilder<'a, R, TryR = ()> {
     signers: StdVec<&'a dyn Signer>,
     invoker: Box<dyn FnOnce() -> R + 'a>,
     try_invoker: Option<Box<dyn FnOnce() -> TryR + 'a>>,
+    sub_invokes: StdVec<MockAuthInvoke<'a>>,
 }
 
 impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
@@ -170,6 +170,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
             signers: StdVec::new(),
             invoker,
             try_invoker,
+            sub_invokes: StdVec::new(),
         }
     }
 
@@ -225,31 +226,15 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
         self
     }
 
-    fn run_auth_setup(
-        env: &Env,
-        contract: &Address,
-        fn_name: &str,
-        args: Vec<Val>,
-        signers: &[&dyn Signer],
-        authorizers: &[&Address],
-    ) {
-        if !signers.is_empty() && !authorizers.is_empty() {
+    fn run_auth_setup(&self) {
+        if !self.signers.is_empty() && !self.authorizers.is_empty() {
             panic!("cannot mix .sign() and .authorize() on the same CallBuilder");
         }
 
-        if !signers.is_empty() {
-            setup_real_auth(env, contract, fn_name, args, signers);
+        if !self.signers.is_empty() {
+            setup_real_auth(self.env, &self.signers, self.mock_auth_invocation());
         } else {
-            setup_mock_auth(
-                env,
-                authorizers,
-                MockAuthInvoke {
-                    contract,
-                    fn_name,
-                    args,
-                    sub_invokes: &[],
-                },
-            );
+            setup_mock_auth(self.env, &self.authorizers, self.mock_auth_invocation());
         }
     }
 
@@ -259,14 +244,7 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// If authorizers are configured, uses mock auth.
     /// Panics if both are configured.
     pub fn invoke(self) -> R {
-        Self::run_auth_setup(
-            self.env,
-            self.contract,
-            self.fn_name,
-            self.args,
-            &self.signers,
-            &self.authorizers,
-        );
+        self.run_auth_setup();
         (self.invoker)()
     }
 
@@ -280,19 +258,40 @@ impl<'a, R, TryR> CallBuilder<'a, R, TryR> {
     /// Panics if no try invoker was provided (i.e. the `CallBuilder` was not
     /// constructed by a generated `AuthClient` method).
     pub fn try_invoke(self) -> TryR {
-        Self::run_auth_setup(
-            self.env,
-            self.contract,
-            self.fn_name,
-            self.args,
-            &self.signers,
-            &self.authorizers,
-        );
+        self.run_auth_setup();
         let try_invoker = self
             .try_invoker
             .expect("try_invoker not set; use try_invoke through AuthClient methods");
         (try_invoker)()
     }
+
+    pub fn add_sub_invoke<B: AsMockAuthInvoke<'a>>(mut self, builder: &'a B) -> Self {
+        self.sub_invokes.push(builder.mock_auth_invocation());
+        self
+    }
+}
+
+impl<'a, R, TryR> AsMockAuthInvoke<'a> for CallBuilder<'a, R, TryR> {
+    fn mock_auth_invocation(&self) -> MockAuthInvoke<'_> {
+        let Self {
+            contract,
+            fn_name,
+            args,
+            sub_invokes,
+            ..
+        } = &self;
+        let args = args.into_val(self.env);
+        MockAuthInvoke {
+            contract,
+            fn_name,
+            args,
+            sub_invokes,
+        }
+    }
+}
+
+pub trait AsMockAuthInvoke<'a> {
+    fn mock_auth_invocation(&'a self) -> MockAuthInvoke<'a>;
 }
 
 // ===========================================================================

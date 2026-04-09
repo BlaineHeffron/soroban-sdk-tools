@@ -4,7 +4,7 @@ extern crate std;
 
 use soroban_sdk::{
     testutils::{Address as _, MockAuthInvoke},
-    Address, BytesN, Env, Executable,
+    Address, BytesN, Env, Executable, IntoVal,
 };
 
 use crate::{UpgradeableContract, UpgradeableContractClient};
