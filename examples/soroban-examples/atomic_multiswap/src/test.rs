@@ -9,7 +9,6 @@ use soroban_sdk::{
     token, Address, Env, IntoVal,
 };
 use soroban_atomic_swap_contract::AtomicSwapContract;
-use soroban_sdk_tools::auth::setup_mock_auth;
 use token::Client as TokenClient;
 use token::StellarAssetClient as TokenAdminClient;
 
@@ -33,12 +32,15 @@ fn mint_with_auth(
     to: &Address,
     amount: i128,
 ) {
-    setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
-        token_address,
-        "mint",
-        (to.clone(), amount),
         &[admin],
+        MockAuthInvoke {
+            contract: token_address,
+            fn_name: "mint",
+            args: (to.clone(), amount).into_val(env),
+            sub_invokes: &[],
+        },
     );
     token_admin.mint(to, &amount);
 }

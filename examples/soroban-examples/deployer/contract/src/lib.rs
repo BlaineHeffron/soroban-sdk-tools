@@ -6,9 +6,8 @@ use soroban_sdk_tools::{contractstorage, InstanceItem};
 #[contract]
 pub struct Contract;
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "value"]
     value: InstanceItem<u32>,
 }
 

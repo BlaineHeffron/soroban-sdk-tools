@@ -40,25 +40,16 @@ pub const SUCCESS_ASSOCIATION_ROOT_SET: &str = "Association root set successfull
 
 const TREE_DEPTH: u32 = 20;
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "null"]
     nullifiers: InstanceItem<Vec<BytesN<32>>>,
-    #[short_key = "vk"]
     vk: InstanceItem<Bytes>,
-    #[short_key = "token"]
     token: InstanceItem<Address>,
-    #[short_key = "assoc"]
     association_root: InstanceItem<BytesN<32>>,
-    #[short_key = "admin"]
     admin: InstanceItem<Address>,
-    #[short_key = "g16v"]
     groth16_verifier: InstanceItem<Address>,
-    #[short_key = "leaves"]
     tree_leaves: InstanceItem<Vec<BytesN<32>>>,
-    #[short_key = "depth"]
     tree_depth: InstanceItem<u32>,
-    #[short_key = "root"]
     tree_root: InstanceItem<BytesN<32>>,
 }
 

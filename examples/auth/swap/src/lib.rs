@@ -166,8 +166,7 @@ impl SwapContract {
         }
 
         // Get next swap ID
-        let swap_id = storage.next_swap_id.get().unwrap_or(0);
-        storage.next_swap_id.set(&(swap_id + 1));
+        let swap_id = storage.next_swap_id.update(|current| current.unwrap_or(0) + 1) - 1;
 
         // Store pending swap
         let pending = PendingSwap {
@@ -243,10 +242,7 @@ impl SwapContract {
 
     /// Get a pending swap's details
     pub fn get_pending_swap(env: Env, swap_id: u64) -> PendingSwap {
-        Storage::new(&env)
-            .pending_swaps
-            .get(&swap_id)
-            .expect("swap not found")
+        Storage::get_pending_swaps(&env, &swap_id).expect("swap not found")
     }
 }
 

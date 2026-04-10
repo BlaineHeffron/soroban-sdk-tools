@@ -14,12 +14,9 @@ pub struct AllowanceValue {
     pub expiration_ledger: u32,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 pub struct TokenStorage {
-    #[short_key = "admin"]
     pub admin: InstanceItem<Address>,
-    #[short_key = "bal"]
     pub balances: PersistentMap<Address, i128>,
-    #[short_key = "allow"]
     pub allowances: TemporaryMap<(Address, Address), AllowanceValue>,
 }

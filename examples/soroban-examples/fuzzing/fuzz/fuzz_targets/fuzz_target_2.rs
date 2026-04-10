@@ -11,13 +11,12 @@ use soroban_fuzzing_contract::*;
 use soroban_ledger_snapshot::LedgerSnapshot;
 use soroban_sdk::testutils::{
     arbitrary::{arbitrary, Arbitrary, SorobanArbitrary},
-    Address as _, LedgerInfo,
+    Address as _, LedgerInfo, MockAuthInvoke,
 };
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::xdr::ScAddress;
-use soroban_sdk::{Address, Env, FromVal, Vec};
-use soroban_sdk_tools::setup_mock_auth;
+use soroban_sdk::{Address, Env, FromVal, IntoVal, Vec};
 use std::vec::Vec as RustVec;
 
 const NUM_ADDRESSES: usize = 2;
@@ -137,12 +136,15 @@ impl Config {
         let timelock_contract_id = env.register(ClaimableBalanceContract, ());
 
         if let Some((depositor_address, _, _)) = &deposit_info {
-            setup_mock_auth(
+            soroban_sdk_tools::setup_mock_auth(
                 &env,
-                &token_contract_id,
-                "mint",
-                (depositor_address.clone(), input.token_mint),
                 &[&token_admin],
+                MockAuthInvoke {
+                    contract: &token_contract_id,
+                    fn_name: "mint",
+                    args: (depositor_address.clone(), input.token_mint).into_val(&env),
+                    sub_invokes: &[],
+                },
             );
             let token_admin_client = TokenAdminClient::new(&env, &token_contract_id);
             token_admin_client.mint(&depositor_address, &input.token_mint);
@@ -188,18 +190,22 @@ impl DepositCommand {
         let time_bound = TimeBound::from_val(env, &self.time_bound);
         let claimant_vec = Vec::from_slice(&env, &claimant_addresses);
 
-        setup_mock_auth(
+        soroban_sdk_tools::setup_mock_auth(
             env,
-            &timelock_contract_id,
-            "deposit",
-            (
-                depositor_address.clone(),
-                token_contract_id.clone(),
-                self.amount,
-                claimant_vec.clone(),
-                time_bound.clone(),
-            ),
             &[&depositor_address],
+            MockAuthInvoke {
+                contract: &timelock_contract_id,
+                fn_name: "deposit",
+                args: (
+                    depositor_address.clone(),
+                    token_contract_id.clone(),
+                    self.amount,
+                    claimant_vec.clone(),
+                    time_bound.clone(),
+                )
+                    .into_val(env),
+                sub_invokes: &[],
+            },
         );
 
         let _ = timelock_client.try_deposit(
@@ -222,12 +228,15 @@ impl ClaimCommand {
         let timelock_client = ClaimableBalanceContractClient::new(&env, &timelock_contract_id);
         let claimant_address = Address::from_val(env, &config.input.addresses[self.claimant_index]);
 
-        setup_mock_auth(
+        soroban_sdk_tools::setup_mock_auth(
             env,
-            &timelock_contract_id,
-            "claim",
-            (claimant_address.clone(), self.amount),
             &[&claimant_address],
+            MockAuthInvoke {
+                contract: &timelock_contract_id,
+                fn_name: "claim",
+                args: (claimant_address.clone(), self.amount).into_val(env),
+                sub_invokes: &[],
+            },
         );
         let _ = timelock_client.try_claim(&claimant_address, &self.amount);
     }

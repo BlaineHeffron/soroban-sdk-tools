@@ -12,11 +12,14 @@
 //! a custom authentication scheme and a custom authorization policy.
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env};
-use soroban_sdk_tools::{contractstorage, PersistentMap};
+use soroban_sdk_tools::{contractstorage, InstanceMap};
 
+// Mirrors upstream stellar/soroban-examples: counters live in instance
+// storage so that the whole map shares one TTL bump and one storage entry.
 #[contractstorage(auto_shorten = true)]
+#[allow(dead_code)] // contractstorage generates static accessors that bypass the field
 struct Storage {
-    counters: PersistentMap<Address, u32>,
+    counters: InstanceMap<Address, u32>,
 }
 
 #[contract]
@@ -26,7 +29,6 @@ pub struct IncrementContract;
 impl IncrementContract {
     /// Increment increments a counter for the user, and returns the value.
     pub fn increment(env: Env, user: Address, value: u32) -> u32 {
-        let storage = Storage::new(&env);
         // Requires `user` to have authorized call of the `increment` of this
         // contract with all the arguments passed to `increment`, i.e. `user`
         // and `value`. This will panic if auth fails for any reason.
@@ -46,9 +48,7 @@ impl IncrementContract {
         // included in args as it's guaranteed to be authenticated).
         // user.require_auth_for_args((value,).into_val(&env));
 
-        storage
-            .counters
-            .update(&user, |count| count.unwrap_or_default() + value)
+        Storage::update_counters(&env, &user, |count| count.unwrap_or_default() + value)
     }
 }
 

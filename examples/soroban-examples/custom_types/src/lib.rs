@@ -9,9 +9,8 @@ pub struct State {
     pub last_incr: u32,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "state"]
     state: InstanceItem<State>,
 }
 

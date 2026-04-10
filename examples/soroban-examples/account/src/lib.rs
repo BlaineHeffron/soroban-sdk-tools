@@ -22,13 +22,10 @@ pub struct AccSignature {
     pub signature: BytesN<64>,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "signer_count"]
     signer_count: InstanceItem<u32>,
-    #[short_key = "signers"]
     signers: InstanceMap<BytesN<32>, ()>,
-    #[short_key = "spend_limits"]
     spend_limits: InstanceMap<Address, i128>,
 }
 

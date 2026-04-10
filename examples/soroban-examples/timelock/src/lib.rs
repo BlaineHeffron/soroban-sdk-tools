@@ -32,11 +32,9 @@ pub struct ClaimableBalance {
     pub time_bound: TimeBound,
 }
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "init"]
     init: InstanceItem<()>,
-    #[short_key = "balance"]
     balance: InstanceItem<ClaimableBalance>,
 }
 

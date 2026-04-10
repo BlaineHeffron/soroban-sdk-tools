@@ -144,15 +144,15 @@ fn mock_withdraw_auth(e: &Env, offer: &Address, seller: &Address, token: &Addres
 }
 
 fn mock_update_price_auth(e: &Env, offer: &Address, seller: &Address, sell_price: u32, buy_price: u32) {
-    let updt_price_invoke = MockAuthInvoke {
+    let update_price_invoke = MockAuthInvoke {
         contract: offer,
-        fn_name: "updt_price",
+        fn_name: "update_price",
         args: (sell_price, buy_price).into_val(e),
         sub_invokes: &[],
     };
     e.mock_auths(&[MockAuth {
         address: seller,
-        invoke: &updt_price_invoke,
+        invoke: &update_price_invoke,
     }]);
 }
 
@@ -251,7 +251,7 @@ fn test() {
 
     // The price here is 1 sell_token = 1 buy_token.
     mock_update_price_auth(&e, &offer.address, &seller, 1, 1);
-    offer.updt_price(&1, &1);
+    offer.update_price(&1, &1);
     // Verify that the seller has to authorize this.
     assert_eq!(
         e.auths(),
@@ -260,7 +260,7 @@ fn test() {
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     offer.address.clone(),
-                    Symbol::new(&e, "updt_price"),
+                    Symbol::new(&e, "update_price"),
                     (1_u32, 1_u32).into_val(&e)
                 )),
                 sub_invocations: std::vec![]

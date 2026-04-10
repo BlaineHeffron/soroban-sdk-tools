@@ -192,17 +192,17 @@ impl VaultContract {
 
     /// Get the vault's balance
     pub fn balance(env: Env) -> i128 {
-        Storage::new(&env).balance.get().unwrap_or(0)
+        Storage::get_balance(&env).unwrap_or(0)
     }
 
     /// Get the list of signers
     pub fn get_signers(env: Env) -> Vec<Address> {
-        Storage::new(&env).signers.get().unwrap()
+        Storage::get_signers(&env).unwrap()
     }
 
     /// Get the current threshold
     pub fn get_threshold(env: Env) -> u32 {
-        Storage::new(&env).threshold.get().unwrap()
+        Storage::get_threshold(&env).unwrap()
     }
 }
 

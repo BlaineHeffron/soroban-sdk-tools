@@ -1,3 +1,11 @@
+//! NOTE: This port deviates from upstream stellar/soroban-examples
+//! `liquidity_pool` in one significant way: the upstream example deploys a
+//! separate share-token contract from inside the LP and delegates share
+//! tracking to it (demonstrating how to deploy and call into another
+//! contract from a contract). For simplicity this port keeps share balances
+//! in a `PersistentMap<Address, i128>` directly on the LP contract. If
+//! you're using this as a reference for the contract-deploy-from-contract
+//! pattern, see upstream instead.
 #![no_std]
 
 mod test;
@@ -6,19 +14,13 @@ use num_integer::Roots;
 use soroban_sdk::{contract, contractimpl, contractmeta, token, Address, Env};
 use soroban_sdk_tools::{contractstorage, InstanceItem, PersistentMap};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "token_a"]
     token_a: InstanceItem<Address>,
-    #[short_key = "token_b"]
     token_b: InstanceItem<Address>,
-    #[short_key = "total_shares"]
     total_shares: InstanceItem<i128>,
-    #[short_key = "reserve_a"]
     reserve_a: InstanceItem<i128>,
-    #[short_key = "reserve_b"]
     reserve_b: InstanceItem<i128>,
-    #[short_key = "shares"]
     shares: PersistentMap<Address, i128>,
 }
 

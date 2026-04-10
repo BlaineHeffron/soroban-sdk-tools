@@ -3,7 +3,7 @@ extern crate std;
 
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation},
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, MockAuthInvoke},
     Address, Env, IntoVal,
 };
 
@@ -21,10 +21,13 @@ fn test() {
 
     soroban_sdk_tools::setup_mock_auth(
         &env,
-        &contract_id,
-        "increment",
-        (user_1.clone(), 5_u32),
         &[&user_1],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "increment",
+            args: (user_1.clone(), 5_u32).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(client.increment(&user_1, &5), 5);
     // Verify that the user indeed had to authorize a call of `increment` with
@@ -58,34 +61,46 @@ fn test() {
     // call to call.
     soroban_sdk_tools::setup_mock_auth(
         &env,
-        &contract_id,
-        "increment",
-        (user_1.clone(), 2_u32),
         &[&user_1],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "increment",
+            args: (user_1.clone(), 2_u32).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(client.increment(&user_1, &2), 7);
     soroban_sdk_tools::setup_mock_auth(
         &env,
-        &contract_id,
-        "increment",
-        (user_2.clone(), 1_u32),
         &[&user_2],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "increment",
+            args: (user_2.clone(), 1_u32).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(client.increment(&user_2, &1), 1);
     soroban_sdk_tools::setup_mock_auth(
         &env,
-        &contract_id,
-        "increment",
-        (user_1.clone(), 3_u32),
         &[&user_1],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "increment",
+            args: (user_1.clone(), 3_u32).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(client.increment(&user_1, &3), 10);
     soroban_sdk_tools::setup_mock_auth(
         &env,
-        &contract_id,
-        "increment",
-        (user_2.clone(), 4_u32),
         &[&user_2],
+        MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "increment",
+            args: (user_2.clone(), 4_u32).into_val(&env),
+            sub_invokes: &[],
+        },
     );
     assert_eq!(client.increment(&user_2, &4), 5);
 }

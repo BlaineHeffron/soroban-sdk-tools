@@ -5,6 +5,18 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, TryFromVal, Val, Vec as HostVec,
 };
 
+// Helper to register the FeaturesContract with default Token/TKN metadata.
+fn register_default<'a>(env: &'a Env, admin: &Address) -> Address {
+    env.register(
+        FeaturesContract,
+        (
+            admin,
+            String::from_str(env, "Token"),
+            String::from_str(env, "TKN"),
+        ),
+    )
+}
+
 // ============================================================================
 // Initialization Tests - Instance Storage
 // ============================================================================
@@ -14,17 +26,14 @@ fn test_initialization() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let name = String::from_str(env, "Test Token");
     let symbol = String::from_str(env, "TST");
 
-    // Initialize contract
-    client.init(&admin, &name, &symbol);
+    let contract_id = env.register(FeaturesContract, (&admin, name.clone(), symbol.clone()));
+    let client = FeaturesContractClient::new(env, &contract_id);
 
-    // Verify instance data
+    // Verify instance data set by __constructor
     assert_eq!(client.get_admin(), Some(admin));
     assert!(client.is_enabled());
     assert_eq!(client.get_metadata(&String::from_str(env, "name")), Some(name));
@@ -33,25 +42,6 @@ fn test_initialization() {
         Some(symbol)
     );
     assert_eq!(client.get_total_supply(), 0);
-}
-
-#[test]
-fn test_already_initialized_error() {
-    let env = &Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
-    let admin = Address::generate(env);
-    let name = String::from_str(env, "Test Token");
-    let symbol = String::from_str(env, "TST");
-
-    client.init(&admin, &name, &symbol);
-
-    // Second initialization should fail
-    let result = client.try_init(&admin, &name, &symbol);
-    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
 // ============================================================================
@@ -63,15 +53,9 @@ fn test_metadata_operations() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Add metadata
     let key = String::from_str(env, "website");
@@ -98,17 +82,11 @@ fn test_mint_and_balance() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Mint tokens
     client.mint(&user, &1000);
@@ -126,18 +104,12 @@ fn test_transfer() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let from = Address::generate(env);
     let to = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Mint to sender
     client.mint(&from, &1000);
@@ -155,18 +127,12 @@ fn test_transfer_insufficient_balance() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let from = Address::generate(env);
     let to = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.mint(&from, &100);
 
@@ -184,19 +150,13 @@ fn test_approve_and_transfer_from() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let owner = Address::generate(env);
     let spender = Address::generate(env);
     let recipient = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Mint to owner
     client.mint(&owner, &1000);
@@ -219,19 +179,13 @@ fn test_transfer_from_insufficient_allowance() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let owner = Address::generate(env);
     let spender = Address::generate(env);
     let recipient = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.mint(&owner, &1000);
 
@@ -249,17 +203,11 @@ fn test_freeze_account() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.mint(&user, &1000);
 
@@ -292,15 +240,9 @@ fn test_governance_events() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Record events
     client.record_event(&1, &String::from_str(env, "Contract deployed"));
@@ -322,17 +264,11 @@ fn test_proposals() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let proposer = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Create proposal
     client.create_proposal(&1, &proposer);
@@ -348,17 +284,11 @@ fn test_faucet_rate_limiting() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // First faucet claim succeeds
     client.faucet(&user);
@@ -386,16 +316,10 @@ fn test_faucet_when_paused() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Pause contract
     client.set_metadata(&String::from_str(env, "paused"), &String::from_str(env, "true"));
@@ -413,17 +337,11 @@ fn test_advanced_operation() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Call advanced operation
     client.advanced_operation(&user, &999);
@@ -438,17 +356,11 @@ fn test_inspect_storage_keys() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // Get storage keys
     let balance_key = client.inspect_balance_key(&user);
@@ -473,15 +385,9 @@ fn test_symbolic_instance_storage_keys() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let _client = FeaturesContractClient::new(env, &contract_id);
 
     // Verify Instance storage uses symbolic keys (default mode)
     env.as_contract(&contract_id, || {
@@ -507,17 +413,11 @@ fn test_hashed_persistent_storage_keys() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let user = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.mint(&user, &1000);
 
@@ -542,18 +442,12 @@ fn test_custom_short_key_prefix() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let from = Address::generate(env);
     let spender = Address::generate(env);
 
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.approve(&from, &spender, &100);
 
@@ -573,15 +467,9 @@ fn test_symbolic_override_in_governance() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
-    client.init(
-        &admin,
-        &String::from_str(env, "Token"),
-        &String::from_str(env, "TKN"),
-    );
+    let contract_id = register_default(env, &admin);
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     client.record_event(&1, &String::from_str(env, "Test event"));
 
@@ -606,20 +494,21 @@ fn test_full_token_lifecycle() {
     let env = &Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register(FeaturesContract, ());
-    let client = FeaturesContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let alice = Address::generate(env);
     let bob = Address::generate(env);
     let charlie = Address::generate(env);
 
-    // 1. Initialize
-    client.init(
-        &admin,
-        &String::from_str(env, "Test Token"),
-        &String::from_str(env, "TEST"),
+    // 1. Initialize via __constructor
+    let contract_id = env.register(
+        FeaturesContract,
+        (
+            &admin,
+            String::from_str(env, "Test Token"),
+            String::from_str(env, "TEST"),
+        ),
     );
+    let client = FeaturesContractClient::new(env, &contract_id);
 
     // 2. Mint to users
     // alice: 1000, bob: 500, total: 1500
@@ -651,7 +540,7 @@ fn test_full_token_lifecycle() {
     assert!(client.is_frozen(&alice));
     let result = client.try_transfer(&alice, &bob, &50);
     assert_eq!(result, Err(Ok(Error::AccountFrozen)));
-    
+
     // Balances should be unchanged after failed transfer
     assert_eq!(client.get_balance(&alice), 950);
     assert_eq!(client.get_balance(&bob), 550);

@@ -8,9 +8,8 @@ use soroban_sdk_tools::{contractstorage, InstanceItem};
 #[contract]
 pub struct Deployer;
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "admin"]
     admin: InstanceItem<Address>,
 }
 

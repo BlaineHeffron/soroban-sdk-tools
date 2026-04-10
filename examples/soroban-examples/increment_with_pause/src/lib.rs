@@ -4,11 +4,9 @@ use soroban_sdk::{
 };
 use soroban_sdk_tools::{contractstorage, scerr, InstanceItem};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "counter"]
     counter: InstanceItem<u32>,
-    #[short_key = "pause"]
     pause: InstanceItem<Address>,
 }
 

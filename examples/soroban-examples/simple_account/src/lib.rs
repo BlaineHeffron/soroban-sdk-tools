@@ -1,4 +1,4 @@
-//! This a minimal exapmle of an account contract.
+//! This a minimal example of an account contract.
 //!
 //! The account is owned by a single ed25519 public key that is also used for
 //! authentication.
@@ -13,9 +13,8 @@ struct SimpleAccount;
 use soroban_sdk::{auth::Context, contract, contractimpl, BytesN, Env, Vec};
 use soroban_sdk_tools::{contractstorage, InstanceItem};
 
-#[contractstorage]
+#[contractstorage(auto_shorten = true)]
 struct Storage {
-    #[short_key = "owner"]
     owner: InstanceItem<BytesN<32>>,
 }
 
