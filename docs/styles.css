@@ -80,7 +80,7 @@ body::before {
   z-index: 1;
   width: min(calc(100% - 2rem), var(--site-width));
   margin: 0 auto;
-  padding: 1rem 0 4.5rem;
+  padding: 1rem 0 5.75rem;
 }
 
 /* ── links ── */
@@ -221,7 +221,7 @@ ul, ol { line-height: 1.7; }
   margin: 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1.02fr) minmax(19rem, 0.98fr);
-  gap: 2.4rem;
+  gap: 3.4rem;
   align-items: center;
 }
 
@@ -237,8 +237,8 @@ ul, ol { line-height: 1.7; }
 }
 
 .page-hero {
-  padding: 2.85rem;
-  margin-bottom: 2rem;
+  padding: 3.15rem;
+  margin-bottom: 2.85rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: linear-gradient(135deg, rgba(16, 24, 48, 0.85), rgba(10, 16, 32, 0.9));
@@ -299,7 +299,7 @@ ul, ol { line-height: 1.7; }
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin: 1.5rem 0 1.8rem;
+  margin: 1.85rem 0 2.2rem;
 }
 
 .button {
@@ -405,8 +405,8 @@ ul, ol { line-height: 1.7; }
 .hero-proof {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0 0;
+  gap: 1.5rem;
+  margin: 2rem 0 0;
 }
 
 .hero-proof div {
@@ -432,7 +432,7 @@ ul, ol { line-height: 1.7; }
 
 .hero-visual {
   position: relative;
-  padding: 1.35rem;
+  padding: 1.7rem;
   border: 1px solid rgba(84, 100, 126, 0.38);
   border-radius: 1.75rem;
   background: linear-gradient(180deg, rgba(9, 14, 28, 0.84), rgba(9, 14, 28, 0.58));
@@ -487,8 +487,8 @@ ul, ol { line-height: 1.7; }
 .hero-signals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
-  margin-top: 1rem;
+  gap: 1.25rem;
+  margin-top: 1.35rem;
 }
 
 .signal {
@@ -512,7 +512,7 @@ ul, ol { line-height: 1.7; }
 }
 
 /* ── section layout ── */
-.section, .section-grid { margin-top: 2.4rem; }
+.section, .section-grid { margin-top: 3.4rem; }
 
 .section-grid {
   display: grid;
@@ -558,19 +558,19 @@ ul, ol { line-height: 1.7; }
 /* ── homepage support sections ── */
 .section-heading-wide {
   max-width: 52rem;
-  margin-bottom: 1.35rem;
+  margin-bottom: 1.8rem;
 }
 
 .capability-band {
-  padding-top: 0.4rem;
+  padding-top: 0.9rem;
 }
 
 .capability-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.6rem;
+  gap: 2.4rem;
   border-top: 1px solid rgba(84, 100, 126, 0.34);
-  padding-top: 1.35rem;
+  padding-top: 1.9rem;
 }
 
 .capability h3 {
@@ -588,8 +588,8 @@ ul, ol { line-height: 1.7; }
 .story-section {
   display: grid;
   grid-template-columns: minmax(0, 1.12fr) minmax(18rem, 0.88fr);
-  gap: 2rem;
-  padding-top: 0.8rem;
+  gap: 3rem;
+  padding-top: 1.35rem;
   border-top: 1px solid rgba(84, 100, 126, 0.34);
 }
 
@@ -602,11 +602,11 @@ ul, ol { line-height: 1.7; }
 
 .story-rail {
   display: grid;
-  gap: 1.1rem;
+  gap: 1.8rem;
 }
 
 .rail-block {
-  padding: 1.25rem 0 0;
+  padding: 1.6rem 0 0;
   border-top: 1px solid rgba(84, 100, 126, 0.34);
 }
 
@@ -653,7 +653,7 @@ ul, ol { line-height: 1.7; }
 .path-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.75rem;
 }
 
 .section-heading { margin-bottom: 1rem; }
@@ -666,7 +666,7 @@ ul, ol { line-height: 1.7; }
 
 .path-card {
   display: block;
-  padding: 1.5rem 0 1.1rem;
+  padding: 2rem 0 1.5rem;
   border-top: 1px solid rgba(84, 100, 126, 0.34);
   border-bottom: 1px solid transparent;
   border-radius: 0;
@@ -696,7 +696,7 @@ ul, ol { line-height: 1.7; }
 
 /* ── checklist section ── */
 .checklist-section {
-  padding: 2rem 2.5rem;
+  padding: 2.5rem 2.85rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: var(--bg-card);
@@ -716,11 +716,11 @@ ul, ol { line-height: 1.7; }
 .content-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .content-card {
-  padding: 1.5rem;
+  padding: 1.8rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
@@ -734,8 +734,8 @@ ul, ol { line-height: 1.7; }
 
 /* ── migration steps ── */
 .migration-step {
-  margin-top: 1.2rem;
-  padding-top: 1.2rem;
+  margin-top: 1.65rem;
+  padding-top: 1.5rem;
   border-top: 1px solid var(--line);
 }
 
@@ -749,11 +749,11 @@ ul, ol { line-height: 1.7; }
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .code-panel {
-  padding: 1.5rem;
+  padding: 1.85rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -797,7 +797,7 @@ ul, ol { line-height: 1.7; }
 }
 
 .comparison-note {
-  margin: 0.8rem 0 0;
+  margin: 1.15rem 0 0;
   color: var(--text);
   font-size: 1rem;
 }
@@ -816,7 +816,7 @@ ul, ol { line-height: 1.7; }
 
 /* ── callout banner ── */
 .callout-banner {
-  padding: 2rem 2.5rem;
+  padding: 2.5rem 2.85rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background:
@@ -842,7 +842,7 @@ ul, ol { line-height: 1.7; }
 /* ── footer ── */
 .site-footer {
   margin-top: 2.5rem;
-  padding: 1.2rem 1.5rem;
+  padding: 1.35rem 1.7rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
@@ -875,11 +875,11 @@ ul, ol { line-height: 1.7; }
   }
 
   .hero, .page-hero, .checklist-section, .callout-banner {
-    padding: 1.5rem;
+    padding: 1.9rem;
   }
 
   .hero-home {
-    padding: 2.4rem 0 3rem;
+    padding: 2.8rem 0 3.4rem;
   }
 
   .hero h1 { font-size: clamp(2.2rem, 10vw, 3.4rem); }

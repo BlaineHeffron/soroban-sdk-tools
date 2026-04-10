@@ -41,7 +41,7 @@
         <p class="eyebrow">Side-by-side</p>
         <h1>What gets shorter, and what stays explicit.</h1>
         <p>
-          Each pair below shows the same behavior with less ceremony.
+          Each pair below does the same job. One just takes more scaffolding.
         </p>
       </section>
 
@@ -86,7 +86,7 @@ pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
           </article>
         </div>
         <p class="comparison-note">
-          Both versions increment the same counter and return the result. The generated version drops the boilerplate.
+          Both versions increment the same counter and return the result. The generated version just takes less setup.
         </p>
       </section>
 
@@ -154,7 +154,7 @@ pub fn safe_div_with(
           </article>
         </div>
         <p class="comparison-note">
-          Both paths call the same external contract. <code>#[scerr]</code> keeps the <code>try_* ??</code> path; the manual version has to spell out both layers.
+          Both paths call the same external contract. <code>#[scerr]</code> lets you keep the <code>try_* ??</code> path; the manual version has to unpack both layers by hand.
         </p>
       </section>
 
@@ -189,7 +189,7 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
           </article>
         </div>
         <p class="comparison-note">
-          Both tests authorize the same transfer. The builder version removes the nested auth structure.
+          Both tests authorize the same transfer. The builder version reads more like the call you're trying to test.
         </p>
       </section>
 
@@ -198,7 +198,7 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
           <p class="eyebrow">Reduction strategy</p>
           <h2>Code gets smaller where it should.</h2>
           <p>
-            The goal is simple: less repetition around storage, errors, and auth.
+            The point is simple: less repetition around storage, errors, and auth.
           </p>
         </div>
         <div class="callout">

@@ -63,7 +63,7 @@
             <p class="eyebrow">Soroban developer tooling</p>
             <h1>Build the contract. Skip the wiring.</h1>
             <p class="hero-text">
-              <code>soroban-sdk-tools</code> cuts the storage, error, and auth boilerplate around Soroban code.
+              <code>soroban-sdk-tools</code> cuts the storage, error, and auth boilerplate that tends to pile up around Soroban contracts.
             </p>
             <div class="hero-actions">
               <a class="button button-primary" href="migration.html">Start migrating</a>
@@ -148,7 +148,7 @@ token::AuthClient::new(env, &amp;token_id)
             <p class="card-kicker">Storage</p>
             <h3>Typed accessors instead of key enums</h3>
             <p>
-              Define storage once and let the reads, writes, and updates generate from it.
+              Define storage once. The reads, writes, and updates come along with it.
             </p>
           </article>
 
@@ -156,7 +156,7 @@ token::AuthClient::new(env, &amp;token_id)
             <p class="card-kicker">Errors</p>
             <h3>Composable errors with predictable codes</h3>
             <p>
-              <code>#[scerr]</code> keeps codes sequential and removes conversion glue.
+              <code>#[scerr]</code> keeps codes in order and gets the conversion glue out of your way.
             </p>
           </article>
 
@@ -164,7 +164,7 @@ token::AuthClient::new(env, &amp;token_id)
             <p class="card-kicker">Auth testing</p>
             <h3>Auth flows that read like the call</h3>
             <p>
-              <code>AuthClient</code> turns nested auth setup into builder calls.
+              <code>AuthClient</code> turns nested auth setup into something you can read at a glance.
             </p>
           </article>
         </div>
@@ -175,10 +175,10 @@ token::AuthClient::new(env, &amp;token_id)
           <p class="eyebrow">Why this project exists</p>
           <h2>Soroban gets easier when onboarding gets shorter.</h2>
           <p>
-            Rust developers should not need a custom macro layer before writing Soroban contracts.
+            Rust developers should be able to start writing Soroban contracts without building their own macro layer first.
           </p>
           <p>
-            The SDK stays visible. The repetition goes away.
+            The SDK still looks like the SDK. You just spend less time on the repetitive parts.
           </p>
         </div>
         <div class="story-rail">

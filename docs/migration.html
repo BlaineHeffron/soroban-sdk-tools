@@ -41,7 +41,7 @@
         <p class="eyebrow">Incremental adoption</p>
         <h1>Migrate one concern at a time.</h1>
         <p>
-          No rewrite needed. Start with storage, then errors, then auth tests.
+          No rewrite needed. Start with storage, then errors, then auth tests when you get there.
         </p>
       </section>
 
@@ -66,13 +66,13 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Manual key enums, repeated <code>env.storage()</code> calls, and duplicated helpers.
+              Manual key enums, repeated <code>env.storage()</code> calls, and helper code you've probably copied more than once.
             </p>
           </div>
           <div class="content-card">
             <h3>What to introduce</h3>
             <p>
-              A storage struct with <code>#[contractstorage]</code>. Add <code>auto_shorten = true</code> if you want short keys.
+              A storage struct with <code>#[contractstorage]</code>. Add <code>auto_shorten = true</code> if you want shorter keys.
             </p>
           </div>
         </div>
@@ -106,7 +106,7 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Manual error codes and conversion glue.
+              Manual error codes and the conversion glue that comes with them.
             </p>
           </div>
           <div class="content-card">
@@ -146,7 +146,7 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Repeated <code>MockAuth</code> arrays and nested invoke trees.
+              Repeated <code>MockAuth</code> arrays and nested invoke trees that are hard to read six weeks later.
             </p>
           </div>
           <div class="content-card">
@@ -183,7 +183,7 @@
           <h2>Remove repetition, not domain logic.</h2>
         </div>
         <p>
-          Keep storage, invariants, and auth rules visible. Remove the boilerplate around them.
+          Keep storage, invariants, and auth rules visible. Cut the boilerplate around them.
         </p>
       </section>
     </main>
