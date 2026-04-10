@@ -149,7 +149,9 @@ pub fn safe_div_with(
     num: &amp;i64,
     denom: &amp;i64,
 ) -&gt; Result&lt;i64, Error&gt; {
-    Ok(external::Client::new(env, address).try_safe_div(num, denom)??)
+    let result = external::Client::new(env, address)
+        .try_safe_div(num, denom);
+    Ok(result??)
 }</code></pre>
           </article>
         </div>
