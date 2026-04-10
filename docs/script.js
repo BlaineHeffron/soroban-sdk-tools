@@ -12,6 +12,32 @@ for (const link of document.querySelectorAll(".site-nav a")) {
   }
 }
 
+/* ── copy install command ── */
+(function initCopyButtons() {
+  for (const button of document.querySelectorAll("[data-copy-target]")) {
+    button.addEventListener("click", async () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+
+      const text = target.innerText.trim();
+      const originalLabel = button.textContent;
+
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+        button.classList.add("is-copied");
+      } catch {
+        button.textContent = "Failed";
+      }
+
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+        button.classList.remove("is-copied");
+      }, 1400);
+    });
+  }
+})();
+
 /* ── reveal on scroll ── */
 (function initReveals() {
   const reveals = document.querySelectorAll(".reveal");

@@ -11,7 +11,8 @@
   <meta property="og:title" content="Code Comparisons — soroban-sdk-tools">
   <meta property="og:description" content="Before/after code comparisons for Soroban storage, errors, and auth testing.">
   <meta property="og:type" content="article">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="shortcut icon" href="favicon.ico">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="examples">
@@ -19,7 +20,7 @@
   <div class="site-shell">
     <header class="site-header">
       <a class="brand" href="index.html">
-        <span class="brand-mark">sst</span>
+        <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-copy">
           <strong>soroban-sdk-tools</strong>
           <span>Code comparisons</span>
@@ -92,51 +93,68 @@ pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
       <section class="section comparison-section reveal">
         <div class="section-heading">
           <p class="eyebrow">Errors</p>
-          <h2>Same <code>safe_div</code>, less error maintenance</h2>
+          <h2>Same cross-contract call, less error glue</h2>
         </div>
         <div class="comparison-grid">
           <article class="code-panel">
             <h3>Manual pattern</h3>
             <pre><code>#[contracterror]
 #[derive(Copy, Clone, Eq, PartialEq)]
-#[repr(u32)]
-pub enum CalcError {
-    DivisionByZero = 100,
-    NegativeInput = 200,
+pub enum AppError {
+    ExternalDivisionByZero = 1,
+    ExternalNegativeInput = 2,
+    ExternalInvoke = 3,
 }
 
-pub fn safe_div(num: i64, denom: i64) -&gt; Result&lt;i64, CalcError&gt; {
-    if denom == 0 {
-        return Err(CalcError::DivisionByZero);
+impl From&lt;external::MathError&gt; for AppError {
+    fn from(err: external::MathError) -&gt; Self {
+        match err {
+            external::MathError::DivisionByZero =&gt; Self::ExternalDivisionByZero,
+            external::MathError::NegativeInput =&gt; Self::ExternalNegativeInput,
+        }
     }
-    if denom &lt; 0 {
-        return Err(CalcError::NegativeInput);
+}
+
+impl From&lt;soroban_sdk::InvokeError&gt; for AppError {
+    fn from(_: soroban_sdk::InvokeError) -&gt; Self {
+        Self::ExternalInvoke
     }
-    Ok(num / denom)
+}
+
+pub fn safe_div_with(
+    env: &amp;Env,
+    address: &amp;Address,
+    num: &amp;i64,
+    denom: &amp;i64,
+) -&gt; Result&lt;i64, AppError&gt; {
+    match external::Client::new(env, address).try_safe_div(num, denom) {
+        Ok(Ok(value)) =&gt; Ok(value),
+        Ok(Err(err)) =&gt; Err(AppError::from(err)),
+        Err(Ok(err)) =&gt; Err(AppError::from(err)),
+        Err(Err(invoke_err)) =&gt; Err(AppError::from(invoke_err)),
+    }
 }</code></pre>
           </article>
           <article class="code-panel">
             <h3>With #[scerr]</h3>
             <pre><code>#[scerr]
-pub enum MathError {
-    /// division by zero
-    DivisionByZero,
-    NegativeInput,
+pub enum Error {
+    #[from_contract_client]
+    Math(#[from] external::MathError),
 }
 
-pub fn safe_div(num: i64, denom: i64) -&gt; Result&lt;i64, MathError&gt; {
-    if denom == 0 {
-        return Err(MathError::DivisionByZero);
-    }
-    if denom &lt; 0 {
-        return Err(MathError::NegativeInput);
-    }
-    Ok(num / denom)
+pub fn safe_div_with(
+    env: &amp;Env,
+    address: &amp;Address,
+    num: &amp;i64,
+    denom: &amp;i64,
+) -&gt; Result&lt;i64, Error&gt; {
+    Ok(external::Client::new(env, address).try_safe_div(num, denom)??)
 }</code></pre>
           </article>
         </div>
         <p class="comparison-note">
-          Both functions do the same checks and return the same result. The difference is how the errors are maintained.
+          Both paths call the same external contract. <code>#[scerr]</code> keeps the <code>try_* ??</code> path; the manual version has to spell out both layers.
         </p>
       </section>
 

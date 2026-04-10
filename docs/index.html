@@ -15,7 +15,8 @@
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="soroban-sdk-tools — Less Soroban Boilerplate">
   <meta name="twitter:description" content="Typed storage, composable errors, and auth testing helpers for Soroban smart contracts on Stellar.">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="shortcut icon" href="favicon.ico">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -38,7 +39,7 @@
   <div class="site-shell">
     <header class="site-header">
       <a class="brand" href="index.html">
-        <span class="brand-mark">sst</span>
+        <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-copy">
           <strong>soroban-sdk-tools</strong>
           <span>Soroban developer tooling</span>
@@ -69,8 +70,13 @@
               <a class="button button-secondary" href="examples.html">Inspect comparisons</a>
             </div>
             <div class="install-strip">
-              <p class="install-label">Install</p>
-              <pre><code>cargo add soroban-sdk-tools
+              <div class="install-strip-header">
+                <p class="install-label">Install</p>
+                <button class="copy-button" type="button" data-copy-target="install-command" aria-label="Copy install commands">
+                  Copy
+                </button>
+              </div>
+              <pre id="install-command"><code>cargo add soroban-sdk-tools
 cargo add soroban-sdk-tools --dev --features testutils</code></pre>
             </div>
             <dl class="hero-proof">
