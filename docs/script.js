@@ -12,24 +12,54 @@ for (const link of document.querySelectorAll(".site-nav a")) {
   }
 }
 
-/* ── scroll reveal ── */
-const reveals = document.querySelectorAll(".reveal");
-if (reveals.length && "IntersectionObserver" in window) {
+/* ── reveal on scroll ── */
+(function initReveals() {
+  const reveals = document.querySelectorAll(".reveal");
+  if (!reveals.length) return;
+  if (!("IntersectionObserver" in window)) {
+    for (const element of reveals) element.classList.add("is-visible");
+    return;
+  }
+
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("is-visible");
-          observer.unobserve(entry.target);
-        }
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
       }
     },
-    { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
+    { threshold: 0.18, rootMargin: "0px 0px -6% 0px" }
   );
-  for (const el of reveals) observer.observe(el);
-} else {
-  for (const el of reveals) el.classList.add("is-visible");
-}
+
+  for (const element of reveals) observer.observe(element);
+})();
+
+/* ── hero parallax ── */
+(function initHeroParallax() {
+  const panel = document.querySelector("[data-parallax]");
+  if (!panel || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  let ticking = false;
+
+  function update() {
+    const rect = panel.getBoundingClientRect();
+    const viewport = window.innerHeight || 1;
+    const offset = ((rect.top + rect.height / 2) / viewport - 0.5) * -18;
+    panel.style.transform = `translateY(${offset.toFixed(2)}px)`;
+    ticking = false;
+  }
+
+  function requestTick() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(update);
+  }
+
+  update();
+  window.addEventListener("scroll", requestTick, { passive: true });
+  window.addEventListener("resize", requestTick);
+})();
 
 /* ── starfield ── */
 (function initStarfield() {

@@ -4,13 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Migration Guide — soroban-sdk-tools</title>
-  <meta name="description" content="Step-by-step guide to migrate your Soroban contract storage, error enums, and auth tests to soroban-sdk-tools. Adopt incrementally without a rewrite.">
+  <meta name="description" content="Migrate Soroban storage, errors, and auth tests without a rewrite.">
   <meta name="theme-color" content="#0b1120">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://blaineheffron.github.io/soroban-sdk-tools/migration.html">
   <meta property="og:title" content="Migration Guide — soroban-sdk-tools">
   <meta property="og:description" content="Migrate Soroban storage, contract errors, and auth tests incrementally with soroban-sdk-tools.">
   <meta property="og:type" content="article">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="migration">
@@ -39,8 +40,7 @@
         <p class="eyebrow">Incremental adoption</p>
         <h1>Migrate one concern at a time.</h1>
         <p>
-          No rewrite needed. The cleanest path is usually storage first, then errors, then
-          auth tests. Each step removes repeated code without forcing a new contract architecture.
+          No rewrite needed. Start with storage, then errors, then auth tests.
         </p>
       </section>
 
@@ -49,10 +49,10 @@
           <h2>Recommended sequence</h2>
         </div>
         <ol class="number-list">
-          <li>Adopt <code>#[contractstorage]</code> for the state that changes most often.</li>
-          <li>Replace hand-numbered enums with <code>#[scerr]</code> once error boundaries are clear.</li>
-          <li>Switch tests from manual <code>MockAuth</code> trees to <code>AuthClient</code> builders.</li>
-          <li>Use real signer helpers only where signature behavior is part of what you are testing.</li>
+          <li>Start with <code>#[contractstorage]</code>.</li>
+          <li>Replace manual error codes with <code>#[scerr]</code>.</li>
+          <li>Move from manual <code>MockAuth</code> to <code>AuthClient</code>.</li>
+          <li>Use real signer helpers only when signatures matter.</li>
         </ol>
       </section>
 
@@ -65,16 +65,13 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Manual key enums, repeated <code>env.storage()</code> calls, one-off helper
-              functions, and duplicated get/set/update logic scattered across contract methods.
+              Manual key enums, repeated <code>env.storage()</code> calls, and duplicated helpers.
             </p>
           </div>
           <div class="content-card">
             <h3>What to introduce</h3>
             <p>
-              A storage struct with explicit item and map types, annotated with
-              <code>#[contractstorage]</code>. Use <code>auto_shorten = true</code> if you want
-              generated short keys by default.
+              A storage struct with <code>#[contractstorage]</code>. Add <code>auto_shorten = true</code> if you want short keys.
             </p>
           </div>
         </div>
@@ -82,19 +79,19 @@
         <div class="migration-step">
           <h3>Checklist</h3>
           <ul>
-            <li>Move your storage keys into a single struct definition.</li>
-            <li>Choose durability explicitly: persistent, instance, or temporary.</li>
-            <li>Swap helper functions for generated methods like <code>get_field</code>, <code>set_field</code>, and <code>update_field</code>.</li>
-            <li>Keep <code>Storage::new(env)</code> when you want grouped access inside one method.</li>
+            <li>Move keys into one struct.</li>
+            <li>Choose persistent, instance, or temporary storage explicitly.</li>
+            <li>Replace custom helpers with generated methods like <code>get_field</code> and <code>set_field</code>.</li>
+            <li>Use <code>Storage::new(env)</code> when grouped access reads better.</li>
           </ul>
         </div>
 
         <div class="migration-step">
           <h3>Watch for</h3>
           <ul>
-            <li>Key names become part of your storage layout. Treat them like schema.</li>
-            <li>Changing durability or key shape is still a state migration, not a macro toggle.</li>
-            <li><code>auto_shorten</code> is helpful, but be deliberate when existing contracts already rely on stable keys.</li>
+            <li>Key names are part of your storage layout.</li>
+            <li>Changing durability or key shape is still a migration.</li>
+            <li>Be careful with <code>auto_shorten</code> on live contracts.</li>
           </ul>
         </div>
       </section>
@@ -108,15 +105,13 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Enums with manually assigned numeric codes, custom conversion glue, and error
-              composition logic that gets harder to maintain as contract boundaries grow.
+              Manual error codes and conversion glue.
             </p>
           </div>
           <div class="content-card">
             <h3>What to introduce</h3>
             <p>
-              <code>#[scerr]</code> on your contract error enums, then transparent or contract-client
-              variants for composed errors once you have imported client types.
+              <code>#[scerr]</code>, plus transparent or client variants where needed.
             </p>
           </div>
         </div>
@@ -124,19 +119,19 @@
         <div class="migration-step">
           <h3>Checklist</h3>
           <ul>
-            <li>Convert one enum at a time and drop the manual numeric assignments.</li>
-            <li>Move human-readable descriptions into doc comments on each variant.</li>
-            <li>For same-WASM composition, use <code>#[transparent]</code> with <code>#[from]</code>.</li>
-            <li>For client <code>try_</code> calls, use <code>#[from_contract_client]</code> and propagate with <code>??</code>.</li>
+            <li>Convert one enum at a time.</li>
+            <li>Put descriptions in doc comments.</li>
+            <li>Use <code>#[transparent]</code> with <code>#[from]</code> for same-WASM composition.</li>
+            <li>Use <code>#[from_contract_client]</code> for client <code>try_</code> calls.</li>
           </ul>
         </div>
 
         <div class="migration-step">
           <h3>Watch for</h3>
           <ul>
-            <li>Sequential codes are generated in enum order &mdash; reordering variants is a breaking change.</li>
-            <li>Cross-contract composition only works cleanly when imported errors implement the generated traits.</li>
-            <li>Keep old numeric mappings documented when migrating a live protocol surface.</li>
+            <li>Enum order defines the generated codes.</li>
+            <li>Cross-contract composition depends on imported error support.</li>
+            <li>Keep old numeric mappings documented on live surfaces.</li>
           </ul>
         </div>
       </section>
@@ -150,16 +145,13 @@
           <div class="content-card">
             <h3>What to replace</h3>
             <p>
-              Repeated <code>MockAuth</code> arrays with copied contract IDs, function names,
-              serialized args, and manually nested invoke trees spread across multiple tests.
+              Repeated <code>MockAuth</code> arrays and nested invoke trees.
             </p>
           </div>
           <div class="content-card">
             <h3>What to introduce</h3>
             <p>
-              The generated <code>AuthClient</code> from <code>contractimport!</code>, plus
-              <code>setup_mock_auth</code> and <code>setup_real_auth</code> when you want helpers
-              outside the builder pattern.
+              <code>AuthClient</code>, plus <code>setup_mock_auth</code> and <code>setup_real_auth</code> when needed.
             </p>
           </div>
         </div>
@@ -167,19 +159,19 @@
         <div class="migration-step">
           <h3>Checklist</h3>
           <ul>
-            <li>Import contract WASM with <code>contractimport!</code> in tests.</li>
-            <li>Create an <code>AuthClient</code> alongside the normal read/query client.</li>
-            <li>Replace manual auth trees with chained <code>.authorize()</code> calls for mock auth.</li>
-            <li>Use <code>.sign()</code> only for cases where cryptographic signer behavior matters.</li>
+            <li>Import the contract WASM with <code>contractimport!</code>.</li>
+            <li>Create an <code>AuthClient</code> alongside the normal client.</li>
+            <li>Replace manual auth trees with chained <code>.authorize()</code> calls.</li>
+            <li>Use <code>.sign()</code> only when signature behavior matters.</li>
           </ul>
         </div>
 
         <div class="migration-step">
           <h3>Watch for</h3>
           <ul>
-            <li>Mock auth is still the right default for setup and non-auth-focused tests.</li>
-            <li>Multi-signer contracts are where the readability gain is largest.</li>
-            <li>Real signer tests cost more setup. Save them for signature semantics, not every happy path.</li>
+            <li>Mock auth is still the default for most tests.</li>
+            <li>The readability gain is biggest in multi-signer flows.</li>
+            <li>Save real signer tests for signature semantics.</li>
           </ul>
         </div>
       </section>
@@ -187,17 +179,16 @@
       <section class="section callout-banner reveal">
         <div>
           <p class="eyebrow">Migration principle</p>
-          <h2>Use the tools to remove repetition, not to hide domain logic.</h2>
+          <h2>Remove repetition, not domain logic.</h2>
         </div>
         <p>
-          Your storage schema, protocol invariants, and authorization rules should stay visible in
-          contract code. The only thing that goes away is the boilerplate around them.
+          Keep storage, invariants, and auth rules visible. Remove the boilerplate around them.
         </p>
       </section>
     </main>
 
     <footer class="site-footer">
-      <p>Next: check the <a href="examples.html">side-by-side comparisons</a> to see which migration step saves your team the most time.</p>
+      <p>Next: check the <a href="examples.html">side-by-side comparisons</a>.</p>
     </footer>
   </div>
   <script src="script.js"></script>

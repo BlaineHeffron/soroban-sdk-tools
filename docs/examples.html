@@ -11,6 +11,7 @@
   <meta property="og:title" content="Code Comparisons — soroban-sdk-tools">
   <meta property="og:description" content="Before/after code comparisons for Soroban storage, errors, and auth testing.">
   <meta property="og:type" content="article">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body data-page="examples">
@@ -39,16 +40,14 @@
         <p class="eyebrow">Side-by-side</p>
         <h1>What gets shorter, and what stays explicit.</h1>
         <p>
-          These comparisons come from patterns already in the repository: typed storage from
-          the increment examples, composed errors from the error tests, and
-          auth builder flows from the token and auth test suites.
+          Each pair below shows the same behavior with less ceremony.
         </p>
       </section>
 
       <section class="section comparison-section reveal">
         <div class="section-heading">
           <p class="eyebrow">Storage</p>
-          <h2>From repeated key plumbing to typed accessors</h2>
+          <h2>Same counter update, less storage plumbing</h2>
         </div>
         <div class="comparison-grid">
           <article class="code-panel">
@@ -57,22 +56,18 @@
 #[contracttype]
 enum DataKey {
     Value,
-    Balances(Address),
 }
 
-fn get_value(env: &amp;Env) -&gt; u32 {
-    env.storage().instance().get(&amp;DataKey::Value).unwrap_or(0)
-}
+pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
+    let current = env
+        .storage()
+        .instance()
+        .get(&amp;DataKey::Value)
+        .unwrap_or(0);
 
-fn set_value(env: &amp;Env, value: u32) {
-    env.storage().instance().set(&amp;DataKey::Value, &amp;value);
-}
-
-fn balance(env: &amp;Env, addr: &amp;Address) -&gt; u32 {
-    env.storage()
-        .persistent()
-        .get(&amp;DataKey::Balances(addr.clone()))
-        .unwrap_or(0)
+    let next = current.saturating_add(amount);
+    env.storage().instance().set(&amp;DataKey::Value, &amp;next);
+    next
 }</code></pre>
           </article>
           <article class="code-panel">
@@ -80,82 +75,75 @@ fn balance(env: &amp;Env, addr: &amp;Address) -&gt; u32 {
             <pre><code>#[contractstorage]
 pub struct Counter {
     value: InstanceItem&lt;u32&gt;,
-    values: PersistentMap&lt;Address, u32&gt;,
 }
 
 pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
     Counter::update_value(env, |current| {
         current.unwrap_or(0).saturating_add(amount)
     })
-}
-
-pub fn increment_for(env: &amp;Env, addr: &amp;Address) -&gt; u32 {
-    let count = Counter::get_values(env, addr).unwrap_or(0) + 1;
-    Counter::set_values(env, addr, &amp;count);
-    count
 }</code></pre>
           </article>
         </div>
         <p class="comparison-note">
-          The contract still decides how state changes. The macro removes the repeated key definitions
-          and read/write wrappers.
+          Both versions increment the same counter and return the result. The generated version drops the boilerplate.
         </p>
       </section>
 
       <section class="section comparison-section reveal">
         <div class="section-heading">
           <p class="eyebrow">Errors</p>
-          <h2>From manual numbering to generated composition</h2>
+          <h2>Same <code>safe_div</code>, less error maintenance</h2>
         </div>
         <div class="comparison-grid">
           <article class="code-panel">
             <h3>Manual pattern</h3>
             <pre><code>#[contracterror]
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub enum AppError {
-    Unauthorized = 1,
-    MathDivisionByZero = 2,
-    MathNegativeInput = 3,
-    ExternalCalcOverflow = 4,
+#[repr(u32)]
+pub enum CalcError {
+    DivisionByZero = 100,
+    NegativeInput = 200,
 }
 
-impl From&lt;MathError&gt; for AppError {
-    fn from(err: MathError) -&gt; Self {
-        match err {
-            MathError::DivisionByZero =&gt; Self::MathDivisionByZero,
-            MathError::NegativeInput =&gt; Self::MathNegativeInput,
-        }
+pub fn safe_div(num: i64, denom: i64) -&gt; Result&lt;i64, CalcError&gt; {
+    if denom == 0 {
+        return Err(CalcError::DivisionByZero);
     }
+    if denom &lt; 0 {
+        return Err(CalcError::NegativeInput);
+    }
+    Ok(num / denom)
 }</code></pre>
           </article>
           <article class="code-panel">
             <h3>With #[scerr]</h3>
             <pre><code>#[scerr]
-pub enum OuterError {
-    /// unauthorized
-    Unauthorized,
+pub enum MathError {
+    /// division by zero
+    DivisionByZero,
+    NegativeInput,
+}
 
-    #[transparent]
-    Math(#[from] MathError),
-
-    #[from_contract_client]
-    MathClient(MathError),
-
-    #[transparent]
-    Calc(#[from] CalcError),
+pub fn safe_div(num: i64, denom: i64) -&gt; Result&lt;i64, MathError&gt; {
+    if denom == 0 {
+        return Err(MathError::DivisionByZero);
+    }
+    if denom &lt; 0 {
+        return Err(MathError::NegativeInput);
+    }
+    Ok(num / denom)
 }</code></pre>
           </article>
         </div>
         <p class="comparison-note">
-          Variant order defines the sequential codes. Numbering stays predictable while a large chunk of
-          hand-maintained conversion glue disappears.
+          Both functions do the same checks and return the same result. The difference is how the errors are maintained.
         </p>
       </section>
 
       <section class="section comparison-section reveal">
         <div class="section-heading">
           <p class="eyebrow">Auth testing</p>
-          <h2>From nested mock structures to builder-style calls</h2>
+          <h2>Same token transfer, less auth setup</h2>
         </div>
         <div class="comparison-grid">
           <article class="code-panel">
@@ -183,8 +171,7 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
           </article>
         </div>
         <p class="comparison-note">
-          This matters most when two or three parties need to authorize the same call. The
-          test reads like the action it is testing, not like the auth data structures underneath.
+          Both tests authorize the same transfer. The builder version removes the nested auth structure.
         </p>
       </section>
 
@@ -193,17 +180,15 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
           <p class="eyebrow">Reduction strategy</p>
           <h2>Code gets smaller where it should.</h2>
           <p>
-            This is not about compressing protocol logic into magic. It strips out
-            repetition around state access, error mapping, and authorization scaffolding.
-            What is left is the code you actually want to read.
+            The goal is simple: less repetition around storage, errors, and auth.
           </p>
         </div>
         <div class="callout">
           <h3>Net effect</h3>
           <ul>
-            <li>Fewer places to make copy-paste mistakes</li>
-            <li>More readable examples for developers new to Soroban</li>
-            <li>Cleaner tests as contract auth rules grow more complex</li>
+            <li>Fewer copy-paste mistakes</li>
+            <li>More readable examples</li>
+            <li>Cleaner auth tests</li>
           </ul>
         </div>
       </section>
