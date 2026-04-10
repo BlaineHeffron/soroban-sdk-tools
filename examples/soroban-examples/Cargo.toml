@@ -1,0 +1,72 @@
+[workspace]
+resolver = "2"
+members = [
+    "account",
+    "alloc",
+    "atomic_multiswap",
+    "atomic_swap",
+    "auth",
+    "bls_signature",
+    "cross_contract/contract_a",
+    "cross_contract/contract_b",
+    "custom_types",
+    "deep_contract_auth",
+    "deployer/contract",
+    "deployer/deployer",
+    "errors",
+    "eth_abi",
+    "events",
+    "fuzzing",
+    "groth16_verifier",
+    "hello_world",
+    "increment",
+    "increment_with_fuzz",
+    "increment_with_pause",
+    "liquidity_pool",
+    "logging",
+    "merkle_distribution",
+    "mint-lock",
+    "other_custom_types",
+    "pause",
+    "privacy-pools/contract",
+    "privacy-pools/libs/lean-imt",
+    "privacy-pools/libs/zk",
+    "simple_account",
+    "single_offer",
+    "timelock",
+    "token",
+    "ttl",
+    "upgradeable_contract/new_contract",
+    "upgradeable_contract/old_contract",
+    "workspace/contract_a",
+    "workspace/contract_a_interface",
+    "workspace/contract_b",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+publish = false
+rust-version = "1.88.0"
+
+[workspace.dependencies]
+soroban-sdk = "25.0.2"
+soroban-sdk-tools = { path = "../../soroban-sdk-tools", version = "0.1.2" }
+soroban-token-sdk = "25.0.2"
+soroban-poseidon = "25.0.0"
+soroban-workspace-contract-a-interface = { path = "workspace/contract_a_interface" }
+soroban-workspace-contract-a = { path = "workspace/contract_a" }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

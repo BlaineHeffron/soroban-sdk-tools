@@ -1,0 +1,21 @@
+[package]
+name = "soroban-workspace-contract-b"
+version.workspace = true
+edition = "2021"
+publish = false
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+soroban-sdk-tools = { workspace = true }
+soroban-sdk = { workspace = true }
+soroban-workspace-contract-a-interface = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk-tools = { workspace = true, features = ["testutils"] }
+soroban-sdk = { workspace = true, features = ["testutils"] }
+soroban-workspace-contract-a-interface = { workspace = true }
+soroban-workspace-contract-a = { workspace = true }

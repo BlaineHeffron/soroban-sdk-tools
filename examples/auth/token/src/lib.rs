@@ -5,52 +5,39 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk_tools::{contractstorage, InstanceItem, PersistentMap};
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    Balance(Address),
-    Allowance(Address, Address), // (owner, spender)
-    Admin,
+#[contractstorage(auto_shorten = true)]
+#[allow(dead_code)] // contractstorage generates static accessors that bypass these fields
+struct Storage {
+    admin: InstanceItem<Address>,
+    balances: PersistentMap<Address, i128>,
+    allowances: PersistentMap<(Address, Address), i128>,
 }
 
 #[contract]
 pub struct TokenContract;
 
-/// Token error codes
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum TokenError {
-    InsufficientBalance = 1,
-    InsufficientAllowance = 2,
-    Unauthorized = 3,
-}
-
-impl From<TokenError> for soroban_sdk::Error {
-    fn from(e: TokenError) -> Self {
-        soroban_sdk::Error::from_contract_error(e as u32)
-    }
-}
-
 #[contractimpl]
 impl TokenContract {
     /// Initialize the token with an admin
     pub fn initialize(env: Env, admin: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
+        let storage = Storage::new(&env);
+        if storage.admin.has() {
             panic!("already initialized");
         }
-        env.storage().instance().set(&DataKey::Admin, &admin);
+        storage.admin.set(&admin);
     }
 
     /// Mint tokens to an address (admin only)
     pub fn mint(env: Env, to: Address, amount: i128) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let storage = Storage::new(&env);
+        let admin = storage.admin.get().unwrap();
         admin.require_auth();
-
-        let key = DataKey::Balance(to.clone());
-        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(balance + amount));
+        storage
+            .balances
+            .update(&to, |balance| balance.unwrap_or(0) + amount);
     }
 
     /// Transfer tokens from caller to recipient
@@ -83,9 +70,7 @@ impl TokenContract {
     pub fn approve(env: Env, owner: Address, spender: Address, amount: i128) {
         // The owner must authorize this approval
         owner.require_auth();
-
-        let key = DataKey::Allowance(owner, spender);
-        env.storage().persistent().set(&key, &amount);
+        Storage::set_allowances(&env, &(owner, spender), &amount);
     }
 
     /// Burn tokens from an address
@@ -100,40 +85,37 @@ impl TokenContract {
 
     /// Get the balance of an address
     pub fn balance(env: Env, addr: Address) -> i128 {
-        let key = DataKey::Balance(addr);
-        env.storage().persistent().get(&key).unwrap_or(0)
+        Storage::get_balances(&env, &addr).unwrap_or(0)
     }
 
     /// Get the allowance for a spender
     pub fn allowance(env: Env, owner: Address, spender: Address) -> i128 {
-        let key = DataKey::Allowance(owner, spender);
-        env.storage().persistent().get(&key).unwrap_or(0)
+        Storage::get_allowances(&env, &(owner, spender)).unwrap_or(0)
     }
 
     // --- Internal helpers ---
 
     fn spend_balance(env: &Env, addr: &Address, amount: i128) {
-        let key = DataKey::Balance(addr.clone());
-        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        let storage = Storage::new(env);
+        let balance = storage.balances.get(addr).unwrap_or(0);
         if balance < amount {
             panic!("insufficient balance");
         }
-        env.storage().persistent().set(&key, &(balance - amount));
+        storage.balances.set(addr, &(balance - amount));
     }
 
     fn receive_balance(env: &Env, addr: &Address, amount: i128) {
-        let key = DataKey::Balance(addr.clone());
-        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(balance + amount));
+        Storage::update_balances(env, addr, |balance| balance.unwrap_or(0) + amount);
     }
 
     fn spend_allowance(env: &Env, owner: &Address, spender: &Address, amount: i128) {
-        let key = DataKey::Allowance(owner.clone(), spender.clone());
-        let allowance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        let storage = Storage::new(env);
+        let key = (owner.clone(), spender.clone());
+        let allowance = storage.allowances.get(&key).unwrap_or(0);
         if allowance < amount {
             panic!("insufficient allowance");
         }
-        env.storage().persistent().set(&key, &(allowance - amount));
+        storage.allowances.set(&key, &(allowance - amount));
     }
 }
 

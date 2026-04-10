@@ -1,0 +1,161 @@
+//! This is the 'timelock' example modified slightly to demonstrate
+//! Soroban's fuzzing capabilities.
+//!
+//! This contract demonstrates 'timelock' concept and implements a
+//! greatly simplified Claimable Balance (similar to
+//! https://developers.stellar.org/docs/glossary/claimable-balance).
+//! The contract allows to deposit some amount of token and allow another
+//! account(s) claim it before or after provided time point.
+//! For simplicity, the contract only supports invoker-based auth.
+
+#![no_std]
+
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, IntoVal, Val, Vec};
+use soroban_sdk_tools::{PersistentItem, StorageKey as _};
+
+#[derive(Clone)]
+#[contracttype]
+pub enum DataKey {
+    Init,
+    Balance,
+}
+
+impl soroban_sdk_tools::StorageKey for DataKey {
+    fn to_key(&self, env: &Env) -> Val {
+        self.clone().into_val(env)
+    }
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub enum TimeBoundKind {
+    Before,
+    After,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct TimeBound {
+    pub kind: TimeBoundKind,
+    pub timestamp: u64,
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub struct ClaimableBalance {
+    pub token: Address,
+    pub amount: i128,
+    pub claimants: Vec<Address>,
+    pub time_bound: TimeBound,
+}
+
+#[contract]
+pub struct ClaimableBalanceContract;
+
+fn init_item(env: &Env) -> PersistentItem<()> {
+    PersistentItem::new_raw(env, DataKey::Init.to_key(env))
+}
+
+fn balance_item(env: &Env) -> PersistentItem<ClaimableBalance> {
+    PersistentItem::new_raw(env, DataKey::Balance.to_key(env))
+}
+
+// The 'timelock' part: check that provided timestamp is before/after
+// the current ledger timestamp.
+fn check_time_bound(env: &Env, time_bound: &TimeBound) -> bool {
+    let ledger_timestamp = env.ledger().timestamp();
+
+    match time_bound.kind {
+        TimeBoundKind::Before => ledger_timestamp <= time_bound.timestamp,
+        TimeBoundKind::After => ledger_timestamp >= time_bound.timestamp,
+    }
+}
+
+#[contractimpl]
+impl ClaimableBalanceContract {
+    pub fn deposit(
+        env: Env,
+        from: Address,
+        token: Address,
+        amount: i128,
+        claimants: Vec<Address>,
+        time_bound: TimeBound,
+    ) {
+        if amount <= 0 {
+            panic!("deposit must be positive");
+        }
+
+        if claimants.is_empty() {
+            panic!("need more than 0 claimants");
+        }
+        if claimants.len() > 10 {
+            panic!("too many claimants");
+        }
+        if is_initialized(&env) {
+            panic!("contract has been already initialized");
+        }
+        // Make sure `from` address authorized the deposit call with all the
+        // arguments.
+        from.require_auth();
+
+        // Transfer token from `from` to this contract address.
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+        // Store all the necessary info to allow one of the claimants to claim it.
+        balance_item(&env).set(&ClaimableBalance {
+            token,
+            amount,
+            time_bound,
+            claimants,
+        });
+        // Mark contract as initialized to prevent double-usage.
+        // Note, that this is just one way to approach initialization - it may
+        // be viable to allow one contract to manage several claimable balances.
+        init_item(&env).set(&());
+    }
+
+    pub fn claim(env: Env, claimant: Address, amount: i128) {
+        // Make sure claimant has authorized this call, which ensures their
+        // identity.
+        claimant.require_auth();
+
+        let mut claimable_balance: ClaimableBalance = balance_item(&env).get().unwrap();
+
+        if !check_time_bound(&env, &claimable_balance.time_bound) {
+            panic!("time predicate is not fulfilled");
+        }
+
+        let claimants = &claimable_balance.claimants;
+        if !claimants.contains(&claimant) {
+            panic!("claimant is not allowed to claim this balance");
+        }
+
+        if amount > claimable_balance.amount {
+            panic!("claimed amount greater than balance");
+        }
+
+        // Transfer the stored amount of token to claimant after passing
+        // all the checks.
+        token::Client::new(&env, &claimable_balance.token).transfer(
+            &env.current_contract_address(),
+            &claimant,
+            &amount,
+        );
+
+        let new_balance = claimable_balance.amount - amount;
+
+        if new_balance > 0 {
+            // Store the new balance.
+            claimable_balance.amount = new_balance;
+            balance_item(&env).set(&claimable_balance);
+        } else {
+            // Remove the balance entry to prevent any further claims.
+            balance_item(&env).remove();
+        }
+    }
+}
+
+fn is_initialized(env: &Env) -> bool {
+    init_item(env).has()
+}
+
+mod proptest;

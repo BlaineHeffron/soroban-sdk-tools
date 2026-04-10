@@ -9,7 +9,7 @@
 //! 2. **Multi-user auth**: Multiple addresses authorizing the same operation
 //! 3. **Simplified API**: Using AuthClient instead of manual MockAuth
 
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, MockAuthInvoke};
 use soroban_sdk::{contract, contractimpl, contracttype, vec, Address, Env, IntoVal, Vec};
 use soroban_sdk_tools::Signer;
 
@@ -248,10 +248,10 @@ fn test_side_by_side_multi_user_auth() {
     // ─────────────────────────────────────────────────────────────────────────
     // METHOD 2: setup_mock_auth helper (much simpler!)
     // ─────────────────────────────────────────────────────────────────────────
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[alice, bob], // Both users authorize
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "atomic_swap",
             args: (alice, 150_i128, bob, 250_i128).into_val(env),
@@ -424,10 +424,10 @@ fn test_multi_signer_vault_withdrawal() {
     let authorizers = &vec![env, signer1.clone(), signer2.clone()];
 
     // Using the setup_mock_auth helper for multi-user auth
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[signer1, signer2],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "withdraw",
             args: (authorizers, recipient, 500_i128).into_val(env),
@@ -450,10 +450,10 @@ fn test_atomic_two_party_swap() {
     let bob = &Address::generate(env);
 
     // Use setup_mock_auth to set up auth for BOTH parties
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[alice, bob],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "atomic_swap",
             args: (alice, 100_i128, bob, 200_i128).into_val(env),
@@ -476,10 +476,10 @@ fn test_three_party_swap() {
     let party_c = &Address::generate(env);
 
     // All three parties must authorize
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[party_a, party_b, party_c],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "three_way_swap",
             args: (party_a, party_b, party_c, 100_i128).into_val(env),
@@ -513,10 +513,10 @@ fn test_insufficient_signers_fails() {
     // Only 1 signer (needs 2)
     let authorizers = &vec![env, signer1.clone()];
 
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[signer1],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "withdraw",
             args: (authorizers, recipient, 500_i128).into_val(env),
@@ -556,10 +556,10 @@ fn test_setup_mock_auth_single_authorizer() {
     let user = &Address::generate(env);
 
     // Use setup_mock_auth with single authorizer
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[user],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "action",
             args: (user,).into_val(env),
@@ -580,10 +580,10 @@ fn test_setup_mock_auth_multiple_authorizers() {
     let user2 = &Address::generate(env);
 
     // Use setup_mock_auth with multiple authorizers
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[user1, user2],
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "dual_action",
             args: (user1, user2).into_val(env),
@@ -603,10 +603,10 @@ fn test_setup_mock_auth_empty_authorizers_is_noop() {
     let user = Address::generate(env);
 
     // Empty authorizers should be a no-op (doesn't set up any mock auth)
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[], // No authorizers
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "action",
             args: (user.clone(),).into_val(env),
@@ -659,10 +659,10 @@ fn test_setup_mock_auth_wrong_authorizer_fails() {
     let wrong_user = &Address::generate(env);
 
     // Set up auth for wrong user
-    soroban_sdk_tools::auth::setup_mock_auth(
+    soroban_sdk_tools::setup_mock_auth(
         env,
         &[wrong_user], // Wrong authorizer!
-        soroban_sdk::testutils::MockAuthInvoke {
+        MockAuthInvoke {
             contract: &contract_id,
             fn_name: "action",
             args: (user,).into_val(env),
