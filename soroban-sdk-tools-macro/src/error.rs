@@ -377,7 +377,7 @@ fn parse_variant_info(variant: &Variant, code: u32) -> syn::Result<VariantInfo> 
 
 /// Assign sequential codes to variants (1, 2, 3, ...).
 /// In root mode, wrapped variants get code 0 (placeholder — actual codes are const-chained).
-/// In basic mode, all variants get sequential codes starting at 1.
+/// In basic mode, implicit variants continue from the last explicit anchor.
 fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
     let mut next_code: u32 = 1;
 
@@ -397,7 +397,9 @@ fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
                     lit: Lit::Int(li), ..
                 }) = expr
                 {
-                    return li.base10_parse::<u32>();
+                    let code = li.base10_parse::<u32>()?;
+                    next_code = code.saturating_add(1);
+                    return Ok(code);
                 } else {
                     return Err(Error::new(
                         expr.span(),
@@ -909,10 +911,14 @@ fn handle_auto_variants(
 fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2::TokenStream {
     let unit_variants = infos.iter().filter(|i| i.field_ty().is_none());
 
-    // Basic-mode entries and tree nodes share the same data; build both in one pass.
+    // Basic-mode spec entries report native error codes, while tree nodes keep
+    // a dense sequential layout for root-mode nesting.
     let (spec_entries, tree_nodes): (Vec<_>, Vec<_>) = unit_variants
+        .enumerate()
         .map(|i| {
+            let (idx, i) = i;
             let code = i.code;
+            let seq_code = idx as u32 + 1;
             let variant_name = i.ident.to_string();
             let desc = &i.description;
             (
@@ -923,7 +929,7 @@ fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2:
                 },
                 quote! {
                     soroban_sdk_tools::error::SpecNode {
-                        code: #code, name: #variant_name, description: #desc,
+                        code: #seq_code, name: #variant_name, description: #desc,
                         children: &[],
                     }
                 },
@@ -1172,6 +1178,26 @@ fn expand_scerr_basic(
         })
         .collect();
 
+    let to_seq_arms: Vec<_> = infos
+        .iter()
+        .enumerate()
+        .map(|(idx, i)| {
+            let ident = &i.ident;
+            let seq = idx as u32;
+            quote! { #name::#ident => #seq }
+        })
+        .collect();
+
+    let from_seq_arms: Vec<_> = infos
+        .iter()
+        .enumerate()
+        .map(|(idx, i)| {
+            let ident = &i.ident;
+            let seq = idx as u32;
+            quote! { #seq => Some(#name::#ident) }
+        })
+        .collect();
+
     // Generate ContractErrorSpec implementation
     let spec_impl = generate_error_spec_impl(name, infos);
 
@@ -1196,10 +1222,15 @@ fn expand_scerr_basic(
 
         impl soroban_sdk_tools::error::SequentialError for #name {
             fn to_seq(&self) -> u32 {
-                *self as u32 - 1
+                match self {
+                    #(#to_seq_arms,)*
+                }
             }
             fn from_seq(seq: u32) -> Option<Self> {
-                <Self as soroban_sdk_tools::error::ContractError>::from_code(seq + 1)
+                match seq {
+                    #(#from_seq_arms,)*
+                    _ => None,
+                }
             }
         }
 
@@ -1307,5 +1338,28 @@ mod tests {
             variants: item.variants,
         };
         assert_eq!(detect_mode(&data), ScerrMode::Root);
+    }
+
+    #[test]
+    fn test_assign_codes_basic_respects_explicit_anchors() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test {
+                UnexpectedError = 0,
+                UnauthorizedSigner = 100,
+                WrongVoter,
+                InvalidKey = 200,
+                ProjectAlreadyExist,
+                AlreadyVoted = 400,
+                ProposalVotingTime,
+            }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+
+        let codes = assign_codes(&data, ScerrMode::Basic).unwrap();
+        assert_eq!(codes, vec![0, 100, 101, 200, 201, 400, 401]);
     }
 }

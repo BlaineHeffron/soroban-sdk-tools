@@ -163,6 +163,48 @@ pub fn safe_div_with(
 
       <section class="section comparison-section reveal">
         <div class="section-heading">
+          <p class="eyebrow">Numbered ranges</p>
+          <h2>Same grouped native codes, less manual bookkeeping</h2>
+        </div>
+        <div class="comparison-grid">
+          <article class="code-panel">
+            <h3>Anchored basic enum</h3>
+            <pre><code class="language-rust">#[scerr]
+pub enum ContractErrors {
+    UnexpectedError = 0,
+
+    UnauthorizedSigner = 100,
+    WrongVoter,
+    MaintainerNotDomainOwner,
+
+    InvalidKey = 200,
+    ProjectAlreadyExist,
+
+    AlreadyVoted = 400,
+    ProposalVotingTime,
+}</code></pre>
+          </article>
+          <article class="code-panel">
+            <h3>Wrapped later</h3>
+            <pre><code class="language-rust">#[scerr]
+pub enum AppError {
+    Unauthorized,
+
+    #[transparent]
+    Contract(#[from] ContractErrors),
+}
+
+// External/native codes stay 0, 100, 101, 200, 400...
+// Inner composition still uses a dense sequence internally.</code></pre>
+          </article>
+        </div>
+        <p class="comparison-note">
+          Use explicit discriminants when downstream consumers care about stable grouped ranges. <code>#[scerr]</code> still keeps nested composition dense, so wrappers and imported errors continue to work.
+        </p>
+      </section>
+
+      <section class="section comparison-section reveal">
+        <div class="section-heading">
           <p class="eyebrow">Auth testing</p>
           <h2>Same token transfer, less auth setup</h2>
         </div>

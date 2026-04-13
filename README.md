@@ -88,6 +88,24 @@ pub enum TokenError {
 }
 ```
 
+You can also anchor variants at explicit numeric boundaries when you want grouped native codes, and `#[scerr]` will keep nested composition dense internally:
+
+```rust
+#[scerr]
+pub enum ContractErrors {
+    UnexpectedError = 0,
+
+    UnauthorizedSigner = 100,
+    WrongVoter,
+
+    InvalidKey = 200,
+    ProjectAlreadyExist,
+
+    AlreadyVoted = 400,
+    ProposalVotingTime,
+}
+```
+
 For cross-contract calls, `#[transparent]` propagates errors in the same WASM via `?`, and `#[from_contract_client]` handles `try_` calls via `??`:
 
 ```rust

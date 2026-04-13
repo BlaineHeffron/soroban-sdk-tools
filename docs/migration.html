@@ -123,6 +123,7 @@
           <ul>
             <li>Convert one enum at a time.</li>
             <li>Put descriptions in doc comments.</li>
+            <li>Keep explicit anchors like <code>= 100</code> or <code>= 400</code> when you want stable grouped native codes.</li>
             <li>Use <code>#[transparent]</code> with <code>#[from]</code> for same-WASM composition.</li>
             <li>Use <code>#[from_contract_client]</code> for client <code>try_</code> calls.</li>
           </ul>
@@ -131,7 +132,7 @@
         <div class="migration-step">
           <h3>Watch for</h3>
           <ul>
-            <li>Enum order defines the generated codes.</li>
+            <li>Implicit variants continue from the last explicit anchor.</li>
             <li>Cross-contract composition depends on imported error support.</li>
             <li>Keep old numeric mappings documented on live surfaces.</li>
           </ul>

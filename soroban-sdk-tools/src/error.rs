@@ -30,9 +30,10 @@ pub trait ContractError: Sized {
 /// any off-by-one arithmetic. Types implementing this trait can be used as
 /// inner types in `#[transparent]` and `#[from_contract_client]` variants.
 ///
-/// For `#[scerr]` types, `to_seq()` returns `into_code() - 1` (since codes
-/// start at 1). For `contractimport!` types, the mapping is generated from
-/// the variant order regardless of native error codes.
+/// For `#[scerr]` and `contractimport!` types, this mapping is generated from
+/// variant order regardless of native error codes. This keeps composition dense
+/// even when a basic `#[scerr]` enum uses explicit discriminants such as
+/// `100`, `200`, or `400`.
 pub trait SequentialError: Sized {
     /// Convert this error to a 0-based sequential index in `[0, TOTAL_CODES)`.
     fn to_seq(&self) -> u32;

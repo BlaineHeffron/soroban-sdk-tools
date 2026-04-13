@@ -1015,6 +1015,29 @@ pub enum StorageError {
     QuotaExceeded,
 }
 
+#[scerr]
+pub enum GroupedRangeError {
+    UnexpectedError = 0,
+
+    UnauthorizedSigner = 100,
+    WrongVoter,
+    MaintainerNotDomainOwner,
+
+    InvalidKey = 200,
+    ProjectAlreadyExist,
+
+    AlreadyVoted = 400,
+    ProposalVotingTime,
+}
+
+#[scerr]
+pub enum GroupedRangeCallerError {
+    Unauthorized,
+
+    #[transparent]
+    Inner(#[from] GroupedRangeError),
+}
+
 #[contract]
 pub struct StorageContract;
 
@@ -1368,6 +1391,7 @@ fn basic_mode_total_codes() {
     assert_eq!(LogicError::TOTAL_CODES, 2);
     assert_eq!(StandardError::TOTAL_CODES, 3);
     assert_eq!(StorageError::TOTAL_CODES, 3);
+    assert_eq!(GroupedRangeError::TOTAL_CODES, 8);
 }
 
 #[test]
@@ -1381,6 +1405,80 @@ fn basic_mode_spec_tree() {
     assert_eq!(tree[0].name, "DivisionByZero");
     assert_eq!(tree[1].code, 2);
     assert_eq!(tree[1].name, "NegativeInput");
+}
+
+#[test]
+fn basic_mode_explicit_ranges_keep_native_codes() {
+    use soroban_sdk_tools::error::SequentialError;
+
+    assert_eq!(GroupedRangeError::UnexpectedError.into_code(), 0);
+    assert_eq!(GroupedRangeError::UnauthorizedSigner.into_code(), 100);
+    assert_eq!(GroupedRangeError::WrongVoter.into_code(), 101);
+    assert_eq!(GroupedRangeError::MaintainerNotDomainOwner.into_code(), 102);
+    assert_eq!(GroupedRangeError::InvalidKey.into_code(), 200);
+    assert_eq!(GroupedRangeError::ProjectAlreadyExist.into_code(), 201);
+    assert_eq!(GroupedRangeError::AlreadyVoted.into_code(), 400);
+    assert_eq!(GroupedRangeError::ProposalVotingTime.into_code(), 401);
+
+    assert_eq!(
+        <GroupedRangeError as ContractError>::from_code(0),
+        Some(GroupedRangeError::UnexpectedError)
+    );
+    assert_eq!(
+        <GroupedRangeError as ContractError>::from_code(100),
+        Some(GroupedRangeError::UnauthorizedSigner)
+    );
+    assert_eq!(
+        <GroupedRangeError as ContractError>::from_code(401),
+        Some(GroupedRangeError::ProposalVotingTime)
+    );
+    assert_eq!(<GroupedRangeError as ContractError>::from_code(1), None);
+
+    assert_eq!(GroupedRangeError::UnexpectedError.to_seq(), 0);
+    assert_eq!(GroupedRangeError::UnauthorizedSigner.to_seq(), 1);
+    assert_eq!(GroupedRangeError::WrongVoter.to_seq(), 2);
+    assert_eq!(GroupedRangeError::MaintainerNotDomainOwner.to_seq(), 3);
+    assert_eq!(GroupedRangeError::InvalidKey.to_seq(), 4);
+    assert_eq!(GroupedRangeError::ProjectAlreadyExist.to_seq(), 5);
+    assert_eq!(GroupedRangeError::AlreadyVoted.to_seq(), 6);
+    assert_eq!(GroupedRangeError::ProposalVotingTime.to_seq(), 7);
+
+    assert_eq!(
+        GroupedRangeError::from_seq(0),
+        Some(GroupedRangeError::UnexpectedError)
+    );
+    assert_eq!(
+        GroupedRangeError::from_seq(6),
+        Some(GroupedRangeError::AlreadyVoted)
+    );
+    assert_eq!(GroupedRangeError::from_seq(8), None);
+}
+
+#[test]
+fn basic_mode_explicit_ranges_spec_metadata() {
+    let entries = GroupedRangeError::SPEC_ENTRIES;
+    assert_eq!(entries.len(), 8);
+    assert_eq!(entries[0].code, 0);
+    assert_eq!(entries[1].code, 100);
+    assert_eq!(entries[2].code, 101);
+    assert_eq!(entries[3].code, 102);
+    assert_eq!(entries[4].code, 200);
+    assert_eq!(entries[5].code, 201);
+    assert_eq!(entries[6].code, 400);
+    assert_eq!(entries[7].code, 401);
+
+    let tree = GroupedRangeError::SPEC_TREE;
+    assert_eq!(tree.len(), 8);
+    assert_eq!(tree[0].code, 1);
+    assert_eq!(tree[1].code, 2);
+    assert_eq!(tree[2].code, 3);
+    assert_eq!(tree[3].code, 4);
+    assert_eq!(tree[4].code, 5);
+    assert_eq!(tree[5].code, 6);
+    assert_eq!(tree[6].code, 7);
+    assert_eq!(tree[7].code, 8);
+    assert_eq!(tree[0].name, "UnexpectedError");
+    assert_eq!(tree[6].name, "AlreadyVoted");
 }
 
 #[test]
@@ -1413,6 +1511,43 @@ fn root_mode_total_codes() {
     // MixedFccError: NotPermitted=1, InvalidConfig=2, MathOp[2]=3-4,
     // StandardOp[3]=5-7, StorageOp[3]=8-10, LogicOp[2]=11-12
     assert_eq!(MixedFccError::TOTAL_CODES, 12);
+
+    // GroupedRangeCallerError: Unauthorized=1, Inner[8]=2-9
+    assert_eq!(GroupedRangeCallerError::TOTAL_CODES, 9);
+}
+
+#[test]
+fn root_mode_wraps_basic_explicit_ranges_sequentially() {
+    assert_eq!(GroupedRangeCallerError::Unauthorized.into_code(), 1);
+    assert_eq!(
+        GroupedRangeCallerError::Inner(GroupedRangeError::UnexpectedError).into_code(),
+        2
+    );
+    assert_eq!(
+        GroupedRangeCallerError::Inner(GroupedRangeError::UnauthorizedSigner).into_code(),
+        3
+    );
+    assert_eq!(
+        GroupedRangeCallerError::Inner(GroupedRangeError::AlreadyVoted).into_code(),
+        8
+    );
+    assert_eq!(
+        GroupedRangeCallerError::Inner(GroupedRangeError::ProposalVotingTime).into_code(),
+        9
+    );
+
+    assert_eq!(
+        <GroupedRangeCallerError as ContractError>::from_code(2),
+        Some(GroupedRangeCallerError::Inner(
+            GroupedRangeError::UnexpectedError
+        ))
+    );
+    assert_eq!(
+        <GroupedRangeCallerError as ContractError>::from_code(9),
+        Some(GroupedRangeCallerError::Inner(
+            GroupedRangeError::ProposalVotingTime
+        ))
+    );
 }
 
 #[test]
