@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mainnet Key Size Case Study — soroban-sdk-tools</title>
+  <meta name="description" content="A Soroban mainnet case study comparing manual storage keys, auto shortening, and symbolic shortening across multiple example contracts.">
+  <meta name="theme-color" content="#0b1120">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://blaineheffron.github.io/soroban-sdk-tools/case-study.html">
+  <meta property="og:title" content="Mainnet Key Size Case Study — soroban-sdk-tools">
+  <meta property="og:description" content="Live Soroban mainnet measurements comparing manual SDK keys, auto shortening, and symbolic shortening.">
+  <meta property="og:type" content="article">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="shortcut icon" href="favicon.ico">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="case-study">
+  <canvas id="starfield" aria-hidden="true"></canvas>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-copy">
+          <strong>soroban-sdk-tools</strong>
+          <span>Mainnet case study</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="migration.html">Migration</a>
+        <a href="examples.html">Comparisons</a>
+        <a href="case-study.html">Case Study</a>
+        <a href="https://crates.io/crates/soroban-sdk-tools" rel="noopener">Crates.io</a>
+        <a href="https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/" rel="noopener">Docs</a>
+        <a href="https://github.com/BlaineHeffron/soroban-sdk-tools" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero case-hero">
+        <p class="eyebrow">Live measurement report</p>
+        <h1>Three storage-key routes, measured on Soroban mainnet.</h1>
+        <p>
+          We deployed nine contracts across three small contract families and measured the XDR byte length of the keys they actually use on-chain.
+        </p>
+        <div class="case-meta">
+          <span class="case-pill">Measured: <strong id="measured-at">loading...</strong></span>
+          <span class="case-pill">Network: <strong id="measured-network">loading...</strong></span>
+          <span class="case-pill">Families: <strong>increment, account, token-lite</strong></span>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Top line</p>
+          <h2>Auto shortening wins once addresses enter the key.</h2>
+        </div>
+        <div class="stats-grid" id="case-study-summary"></div>
+      </section>
+
+      <section class="section reveal">
+        <div class="case-grid">
+          <div>
+            <div class="section-heading">
+              <p class="eyebrow">Method</p>
+              <h2>How the measurements were produced</h2>
+            </div>
+            <ol class="method-list">
+              <li>Built 9 separate WASM contracts from a dedicated case-study workspace in this repository.</li>
+              <li>Deployed every variant to Soroban mainnet on April 13, 2026 using the local <code>mainnet-study-headless</code> source account.</li>
+              <li>Invoked representative write paths first, then called dedicated measurement methods on the deployed contracts.</li>
+              <li>Each measurement method returned <code>key.to_xdr(env).len()</code>, so the reported sizes are the actual XDR byte lengths for that deployed variant.</li>
+            </ol>
+          </div>
+          <aside class="insight-stack">
+            <article class="insight-panel">
+              <h3>What was compared</h3>
+              <p>Manual Soroban SDK storage keys, <code>auto_shorten=true</code>, and <code>auto_shorten=true, symbolic=true</code>.</p>
+            </article>
+            <article class="insight-panel">
+              <h3>Why these contracts</h3>
+              <p><code>increment</code> covers one-item storage, <code>account</code> covers stored account metadata, and <code>token-lite</code> covers address and address-pair map keys.</p>
+            </article>
+            <article class="insight-panel">
+              <h3>Scope</h3>
+              <p>This page is about key size, not total transaction cost. Keeping that separate makes the storage comparison easier to trust.</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="table-card">
+          <div class="section-heading">
+            <p class="eyebrow">Per-key data</p>
+            <h2>Measured key sizes by contract and storage shape</h2>
+          </div>
+          <p>
+            These are the byte lengths of the key XDR itself. The gap gets real once the key includes one address or two.
+          </p>
+          <div class="measure-table-wrap" id="measurement-table"></div>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="table-card">
+          <div class="section-heading">
+            <p class="eyebrow">Typical interactions</p>
+            <h2>Total key bytes touched for representative writes</h2>
+          </div>
+          <p>
+            These totals sum the measured key sizes for the keys a representative interaction touches. They are derived from the cited per-key measurements above and do not include value bytes or other transaction overhead.
+          </p>
+          <div class="measure-table-wrap" id="interaction-table"></div>
+        </div>
+      </section>
+
+      <section class="section two-column reveal">
+        <div>
+          <p class="eyebrow">Findings</p>
+          <h2>What the data says</h2>
+          <ul class="findings-list">
+            <li>For single-item instance storage, the two tools-based routes ended up at the same size.</li>
+            <li>For one-address map keys, symbolic mode kept readable prefixes but still cost noticeably more than the hashed route.</li>
+            <li>For two-address composite keys, the fully automatic route pulled away fast.</li>
+          </ul>
+        </div>
+        <div class="callout" id="case-study-conclusion">
+          <p>Loading conclusions...</p>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="table-card">
+          <div class="section-heading">
+            <p class="eyebrow">Evidence</p>
+            <h2>Raw measurement links</h2>
+          </div>
+          <p>
+            The <code>log</code> link opens the contract history where the measurement call and returned byte count are visible. The <code>entry</code> link opens the storage page so you can inspect the ledger entry shape that was written.
+          </p>
+          <div class="measure-table-wrap" id="evidence-table"></div>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="table-card">
+          <div class="section-heading">
+            <p class="eyebrow">Appendix</p>
+            <h2>Deployments used for the study</h2>
+          </div>
+          <p>
+            Every contract below was deployed for this comparison. The IDs link to the corresponding network pages.
+          </p>
+          <div class="measure-table-wrap" id="deployment-table"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Source contracts live under <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/case-study"><code>examples/case-study</code></a>. The automation lives in <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/blob/main/scripts/run_case_study.sh"><code>scripts/run_case_study.sh</code></a> and <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/blob/main/scripts/capture_case_study_citations.sh"><code>scripts/capture_case_study_citations.sh</code></a>.</p>
+    </footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>soroban-sdk-tools — Less Soroban Boilerplate</title>
+  <meta name="description" content="Typed storage, generated errors, and auth test helpers for Soroban smart contracts.">
+  <meta name="theme-color" content="#0b1120">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://blaineheffron.github.io/soroban-sdk-tools/">
+  <meta property="og:title" content="soroban-sdk-tools — Less Soroban Boilerplate">
+  <meta property="og:description" content="Typed storage, composable errors, and auth testing helpers for Soroban smart contracts on Stellar.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://blaineheffron.github.io/soroban-sdk-tools/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="soroban-sdk-tools — Less Soroban Boilerplate">
+  <meta name="twitter:description" content="Typed storage, composable errors, and auth testing helpers for Soroban smart contracts on Stellar.">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="shortcut icon" href="favicon.ico">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "soroban-sdk-tools",
+    "description": "Rust macros and helpers that reduce Soroban smart contract boilerplate for storage, errors, and auth testing.",
+    "programmingLanguage": "Rust",
+    "codeRepository": "https://github.com/BlaineHeffron/soroban-sdk-tools",
+    "license": "https://opensource.org/licenses/Apache-2.0",
+    "author": [
+      { "@type": "Person", "name": "Blaine Heffron" },
+      { "@type": "Person", "name": "Willem Wyndham" }
+    ]
+  }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="home">
+  <canvas id="starfield" aria-hidden="true"></canvas>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-copy">
+          <strong>soroban-sdk-tools</strong>
+          <span>Soroban developer tooling</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="migration.html">Migration</a>
+        <a href="examples.html">Comparisons</a>
+        <a href="case-study.html">Case Study</a>
+        <a href="https://crates.io/crates/soroban-sdk-tools" rel="noopener">Crates.io</a>
+        <a href="https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/" rel="noopener">Docs</a>
+        <a href="https://github.com/BlaineHeffron/soroban-sdk-tools" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero hero-home">
+        <div class="hero-aura" aria-hidden="true"></div>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">Soroban developer tooling</p>
+            <h1>Build the contract. Skip the wiring.</h1>
+            <p class="hero-text">
+              <code>soroban-sdk-tools</code> cuts the storage, error, and auth boilerplate that tends to pile up around Soroban contracts.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="migration.html">Start migrating</a>
+              <a class="button button-secondary" href="examples.html">Inspect comparisons</a>
+              <a class="button button-secondary" href="case-study.html">Read mainnet study</a>
+            </div>
+            <div class="install-strip">
+              <div class="install-strip-header">
+                <p class="install-label">Install</p>
+                <button class="copy-button" type="button" data-copy-target="install-command" aria-label="Copy install commands">
+                  Copy
+                </button>
+              </div>
+              <pre id="install-command"><code>cargo add soroban-sdk-tools
+cargo add soroban-sdk-tools --dev --features testutils</code></pre>
+            </div>
+            <dl class="hero-proof">
+              <div>
+                <dt>Replaces</dt>
+                <dd>Manual keys, numbered errors, verbose auth mocks.</dd>
+              </div>
+              <div>
+                <dt>Keeps</dt>
+                <dd>Normal Soroban code, explicit state changes, existing tests.</dd>
+              </div>
+              <div>
+                <dt>Best for</dt>
+                <dd>Rust teams shipping Soroban faster.</dd>
+              </div>
+            </dl>
+          </div>
+
+          <aside class="hero-visual reveal" data-parallax>
+            <div class="hero-terminal">
+              <div class="terminal-topline">
+                <span class="terminal-kicker">Typed storage</span>
+                <span class="terminal-kicker">Error composition</span>
+                <span class="terminal-kicker">Auth tests</span>
+              </div>
+              <pre><code class="language-rust">#[contractstorage]
+pub struct VaultState {
+    owner: InstanceItem&lt;Address&gt;,
+    balances: PersistentMap&lt;Address, i128&gt;,
+}
+
+#[scerr]
+pub enum VaultError {
+    Unauthorized,
+    #[transparent]
+    Token(#[from] TokenError),
+}
+
+#[test]
+fn transfer_auth_flow() {
+    let env = Env::default();
+    token::AuthClient::new(&amp;env, &amp;token_id)
+        .transfer(&amp;from, &amp;to, &amp;amount)
+        .authorize(&amp;from)
+        .invoke();
+}</code></pre>
+            </div>
+            <div class="hero-signals" aria-label="Key benefits">
+              <div class="signal">
+                <span class="signal-value">typed</span>
+                <span class="signal-label">storage accessors generated from one struct</span>
+              </div>
+              <div class="signal">
+                <span class="signal-value">predictable</span>
+                <span class="signal-label">error codes stay sequential without hand maintenance</span>
+              </div>
+              <div class="signal">
+                <span class="signal-value">readable</span>
+                <span class="signal-label">auth tests read like the calls they authorize</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section capability-band reveal">
+        <div class="section-heading section-heading-wide">
+          <p class="eyebrow">Core surface area</p>
+          <h2>Three places Soroban projects pick up drag.</h2>
+        </div>
+        <div class="capability-grid">
+          <article class="capability">
+            <p class="card-kicker">Storage</p>
+            <h3>Typed accessors instead of key enums</h3>
+            <p>
+              Define storage once. The reads, writes, and updates come along with it.
+            </p>
+          </article>
+
+          <article class="capability">
+            <p class="card-kicker">Errors</p>
+            <h3>Composable errors with predictable codes</h3>
+            <p>
+              <code>#[scerr]</code> keeps codes in order and gets the conversion glue out of your way.
+            </p>
+          </article>
+
+          <article class="capability">
+            <p class="card-kicker">Auth testing</p>
+            <h3>Auth flows that read like the call</h3>
+            <p>
+              <code>AuthClient</code> turns nested auth setup into something you can read at a glance.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section story-section reveal">
+        <div class="story-copy">
+          <p class="eyebrow">Why this project exists</p>
+          <h2>Soroban gets easier when onboarding gets shorter.</h2>
+          <p>
+            Rust developers should be able to start writing Soroban contracts without building their own macro layer first.
+          </p>
+          <p>
+            The SDK still looks like the SDK. You just spend less time on the repetitive parts.
+          </p>
+        </div>
+        <div class="story-rail">
+          <div class="rail-block">
+            <p class="card-kicker">Good fit</p>
+            <ul>
+              <li>Teams standardizing storage across contracts</li>
+              <li>Projects composing errors across boundaries</li>
+              <li>Test suites with repeated auth setup</li>
+            </ul>
+          </div>
+          <div class="rail-block">
+            <p class="card-kicker">Design principle</p>
+            <p>Remove repetition, not control. Your contract code stays explicit.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="section-heading section-heading-wide">
+          <p class="eyebrow">Next steps</p>
+          <h2>Pick the shortest path in.</h2>
+        </div>
+        <div class="path-grid">
+          <a class="path-card" href="migration.html">
+            <h3>Migration guide</h3>
+            <p>Adopt storage, errors, and auth helpers one step at a time.</p>
+          </a>
+          <a class="path-card" href="examples.html">
+            <h3>Code comparisons</h3>
+            <p>See what gets shorter and what stays explicit.</p>
+          </a>
+          <a class="path-card" href="case-study.html">
+            <h3>Mainnet case study</h3>
+            <p>Review live storage-key measurements for manual, auto, and symbolic routes.</p>
+          </a>
+          <a class="path-card" href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples">
+            <h3>Repository examples</h3>
+            <p>Browse working contracts for increment, errors, token auth, vaults, and swaps.</p>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Apache-2.0 &middot; <a href="https://crates.io/crates/soroban-sdk-tools">crates.io</a> &middot; <a href="https://docs.rs/soroban-sdk-tools">docs.rs</a> &middot; <a href="https://github.com/BlaineHeffron/soroban-sdk-tools">source</a></p>
+    </footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

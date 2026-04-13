@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Migration Guide — soroban-sdk-tools</title>
+  <meta name="description" content="Migrate Soroban storage, errors, and auth tests without a rewrite.">
+  <meta name="theme-color" content="#0b1120">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://blaineheffron.github.io/soroban-sdk-tools/migration.html">
+  <meta property="og:title" content="Migration Guide — soroban-sdk-tools">
+  <meta property="og:description" content="Migrate Soroban storage, contract errors, and auth tests incrementally with soroban-sdk-tools.">
+  <meta property="og:type" content="article">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="shortcut icon" href="favicon.ico">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="migration">
+  <canvas id="starfield" aria-hidden="true"></canvas>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-copy">
+          <strong>soroban-sdk-tools</strong>
+          <span>Migration guide</span>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="migration.html">Migration</a>
+        <a href="examples.html">Comparisons</a>
+        <a href="case-study.html">Case Study</a>
+        <a href="https://crates.io/crates/soroban-sdk-tools" rel="noopener">Crates.io</a>
+        <a href="https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/" rel="noopener">Docs</a>
+        <a href="https://github.com/BlaineHeffron/soroban-sdk-tools" rel="noopener">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Incremental adoption</p>
+        <h1>Migrate one concern at a time.</h1>
+        <p>
+          No rewrite needed. Start with storage, then errors, then auth tests when you get there.
+        </p>
+      </section>
+
+      <section class="section checklist-section reveal">
+        <div class="section-heading">
+          <h2>Recommended sequence</h2>
+        </div>
+        <ol class="number-list">
+          <li>Start with <code>#[contractstorage]</code>.</li>
+          <li>Replace manual error codes with <code>#[scerr]</code>.</li>
+          <li>Move from manual <code>MockAuth</code> to <code>AuthClient</code>.</li>
+          <li>Use real signer helpers only when signatures matter.</li>
+        </ol>
+      </section>
+
+      <section class="section reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Step 1</p>
+          <h2>Storage migration</h2>
+        </div>
+        <div class="content-grid">
+          <div class="content-card">
+            <h3>What to replace</h3>
+            <p>
+              Manual key enums, repeated <code>env.storage()</code> calls, and helper code you've probably copied more than once.
+            </p>
+          </div>
+          <div class="content-card">
+            <h3>What to introduce</h3>
+            <p>
+              A storage struct with <code>#[contractstorage]</code>. Add <code>auto_shorten = true</code> if you want shorter keys.
+            </p>
+          </div>
+        </div>
+
+        <div class="migration-step">
+          <h3>Checklist</h3>
+          <ul>
+            <li>Move keys into one struct.</li>
+            <li>Choose persistent, instance, or temporary storage explicitly.</li>
+            <li>Replace custom helpers with generated methods like <code>get_field</code> and <code>set_field</code>.</li>
+            <li>Use <code>Storage::new(env)</code> when grouped access reads better.</li>
+          </ul>
+        </div>
+
+        <div class="migration-step">
+          <h3>Watch for</h3>
+          <ul>
+            <li>Key names are part of your storage layout.</li>
+            <li>Changing durability or key shape is still a migration.</li>
+            <li>Be careful with <code>auto_shorten</code> on live contracts.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Step 2</p>
+          <h2>Error migration</h2>
+        </div>
+        <div class="content-grid">
+          <div class="content-card">
+            <h3>What to replace</h3>
+            <p>
+              Manual error codes and the conversion glue that comes with them.
+            </p>
+          </div>
+          <div class="content-card">
+            <h3>What to introduce</h3>
+            <p>
+              <code>#[scerr]</code>, plus transparent or client variants where needed.
+            </p>
+          </div>
+        </div>
+
+        <div class="migration-step">
+          <h3>Checklist</h3>
+          <ul>
+            <li>Convert one enum at a time.</li>
+            <li>Put descriptions in doc comments.</li>
+            <li>Use <code>#[transparent]</code> with <code>#[from]</code> for same-WASM composition.</li>
+            <li>Use <code>#[from_contract_client]</code> for client <code>try_</code> calls.</li>
+          </ul>
+        </div>
+
+        <div class="migration-step">
+          <h3>Watch for</h3>
+          <ul>
+            <li>Enum order defines the generated codes.</li>
+            <li>Cross-contract composition depends on imported error support.</li>
+            <li>Keep old numeric mappings documented on live surfaces.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Step 3</p>
+          <h2>Auth test migration</h2>
+        </div>
+        <div class="content-grid">
+          <div class="content-card">
+            <h3>What to replace</h3>
+            <p>
+              Repeated <code>MockAuth</code> arrays and nested invoke trees that are hard to read six weeks later.
+            </p>
+          </div>
+          <div class="content-card">
+            <h3>What to introduce</h3>
+            <p>
+              <code>AuthClient</code>, plus <code>setup_mock_auth</code> and <code>setup_real_auth</code> when needed.
+            </p>
+          </div>
+        </div>
+
+        <div class="migration-step">
+          <h3>Checklist</h3>
+          <ul>
+            <li>Import the contract WASM with <code>contractimport!</code>.</li>
+            <li>Create an <code>AuthClient</code> alongside the normal client.</li>
+            <li>Replace manual auth trees with chained <code>.authorize()</code> calls.</li>
+            <li>Use <code>.sign()</code> only when signature behavior matters.</li>
+          </ul>
+        </div>
+
+        <div class="migration-step">
+          <h3>Watch for</h3>
+          <ul>
+            <li>Mock auth is still the default for most tests.</li>
+            <li>The readability gain is biggest in multi-signer flows.</li>
+            <li>Save real signer tests for signature semantics.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section callout-banner reveal">
+        <div>
+          <p class="eyebrow">Migration principle</p>
+          <h2>Remove repetition, not domain logic.</h2>
+        </div>
+        <p>
+          Keep storage, invariants, and auth rules visible. Cut the boilerplate around them.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Next: check the <a href="examples.html">side-by-side comparisons</a>.</p>
+    </footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
