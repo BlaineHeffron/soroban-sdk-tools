@@ -1017,7 +1017,7 @@ pub enum StorageError {
 
 #[scerr]
 pub enum GroupedRangeError {
-    UnexpectedError = 0,
+    UnexpectedError = 1,
 
     UnauthorizedSigner = 100,
     WrongVoter,
@@ -1411,7 +1411,7 @@ fn basic_mode_spec_tree() {
 fn basic_mode_explicit_ranges_keep_native_codes() {
     use soroban_sdk_tools::error::SequentialError;
 
-    assert_eq!(GroupedRangeError::UnexpectedError.into_code(), 0);
+    assert_eq!(GroupedRangeError::UnexpectedError.into_code(), 1);
     assert_eq!(GroupedRangeError::UnauthorizedSigner.into_code(), 100);
     assert_eq!(GroupedRangeError::WrongVoter.into_code(), 101);
     assert_eq!(GroupedRangeError::MaintainerNotDomainOwner.into_code(), 102);
@@ -1421,7 +1421,7 @@ fn basic_mode_explicit_ranges_keep_native_codes() {
     assert_eq!(GroupedRangeError::ProposalVotingTime.into_code(), 401);
 
     assert_eq!(
-        <GroupedRangeError as ContractError>::from_code(0),
+        <GroupedRangeError as ContractError>::from_code(1),
         Some(GroupedRangeError::UnexpectedError)
     );
     assert_eq!(
@@ -1432,7 +1432,7 @@ fn basic_mode_explicit_ranges_keep_native_codes() {
         <GroupedRangeError as ContractError>::from_code(401),
         Some(GroupedRangeError::ProposalVotingTime)
     );
-    assert_eq!(<GroupedRangeError as ContractError>::from_code(1), None);
+    assert_eq!(<GroupedRangeError as ContractError>::from_code(2), None);
 
     assert_eq!(GroupedRangeError::UnexpectedError.to_seq(), 0);
     assert_eq!(GroupedRangeError::UnauthorizedSigner.to_seq(), 1);
@@ -1458,7 +1458,7 @@ fn basic_mode_explicit_ranges_keep_native_codes() {
 fn basic_mode_explicit_ranges_spec_metadata() {
     let entries = GroupedRangeError::SPEC_ENTRIES;
     assert_eq!(entries.len(), 8);
-    assert_eq!(entries[0].code, 0);
+    assert_eq!(entries[0].code, 1);
     assert_eq!(entries[1].code, 100);
     assert_eq!(entries[2].code, 101);
     assert_eq!(entries[3].code, 102);

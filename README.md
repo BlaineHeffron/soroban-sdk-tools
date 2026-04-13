@@ -93,7 +93,7 @@ You can also anchor variants at explicit numeric boundaries when you want groupe
 ```rust
 #[scerr]
 pub enum ContractErrors {
-    UnexpectedError = 0,
+    UnexpectedError = 1,
 
     UnauthorizedSigner = 100,
     WrongVoter,
