@@ -1,10 +1,11 @@
 //! Error handling utilities for Soroban contracts.
 //!
 //! Provides traits and helper types for composable error handling
-//! with the `#[scerr]` macro. Error codes are assigned sequentially
-//! starting at 1, with wrapped inner types flattened at their position
-//! via const-chaining. The `Aborted` variant always uses code 0, and
-//! the `UnknownError` sentinel always uses [`UNKNOWN_ERROR_CODE`].
+//! with the `#[scerr]` macro. Basic enums use sequential codes by default,
+//! but may preserve explicit numeric anchors. Wrapped inner types are
+//! flattened into a dense sequential space via const-chaining. The `Aborted`
+//! variant always uses code 0, and the `UnknownError` sentinel always uses
+//! [`UNKNOWN_ERROR_CODE`].
 
 // Re-export contracterror for users
 pub use soroban_sdk::contracterror;

@@ -74,7 +74,7 @@ There's a Map and Item variant for each durability: `PersistentMap<K,V>` / `Pers
 
 ## Error handling
 
-`#[scerr]` generates a `#[contracterror]` enum with sequential codes and doc-comment descriptions:
+`#[scerr]` generates a `#[contracterror]` enum with doc-comment descriptions and generated codes:
 
 ```rust
 use soroban_sdk_tools::scerr;
@@ -121,7 +121,7 @@ pub enum AppError {
 }
 ```
 
-Codes are assigned sequentially and the WASM spec comes out fully flattened, so your TypeScript bindings see every variant without gaps. See [error docs](https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/error/) for the composition rules.
+By default the generated codes are sequential. If you add explicit anchors in a basic enum, those native codes are preserved while composition and the WASM spec still flatten densely. See [error docs](https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/error/) for the composition rules.
 
 ## Contract imports
 

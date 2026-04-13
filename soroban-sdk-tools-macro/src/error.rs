@@ -48,9 +48,11 @@
 //!
 //! ## Architecture
 //!
-//! Error codes are assigned **sequentially** starting at 1. When a variant wraps another
-//! error type (via `#[transparent]` or `#[from_contract_client]`), the inner type's variants
-//! are flattened into the sequential range at their position using const-chaining.
+//! Error codes are sequential by default, but basic-mode enums may use explicit
+//! discriminants to preserve native ranges. When a variant wraps another error
+//! type (via `#[transparent]` or `#[from_contract_client]`), the inner type's
+//! variants are flattened into a dense sequential range at their position using
+//! const-chaining.
 //!
 //! For example, if `MathError` has 2 variants:
 //! - `Unauthorized = 1`
@@ -398,7 +400,13 @@ fn assign_codes(data: &DataEnum, mode: ScerrMode) -> syn::Result<Vec<u32>> {
                 }) = expr
                 {
                     let code = li.base10_parse::<u32>()?;
-                    next_code = code.saturating_add(1);
+                    next_code = code.checked_add(1).ok_or_else(|| {
+                        Error::new(
+                            li.span(),
+                            "Explicit discriminant cannot be u32::MAX because implicit variants \
+                             would overflow the code space",
+                        )
+                    })?;
                     return Ok(code);
                 } else {
                     return Err(Error::new(
@@ -915,8 +923,7 @@ fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2:
     // a dense sequential layout for root-mode nesting.
     let (spec_entries, tree_nodes): (Vec<_>, Vec<_>) = unit_variants
         .enumerate()
-        .map(|i| {
-            let (idx, i) = i;
+        .map(|(idx, i)| {
             let code = i.code;
             let seq_code = idx as u32 + 1;
             let variant_name = i.ident.to_string();
@@ -1361,5 +1368,50 @@ mod tests {
 
         let codes = assign_codes(&data, ScerrMode::Basic).unwrap();
         assert_eq!(codes, vec![0, 100, 101, 200, 201, 400, 401]);
+    }
+
+    #[test]
+    fn test_assign_codes_root_rejects_explicit_discriminant() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test {
+                A = 100,
+                #[transparent]
+                B(SomeError),
+            }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+
+        let err = assign_codes(&data, ScerrMode::Root).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Explicit discriminants are not allowed"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_assign_codes_rejects_u32_max_anchor() {
+        let item: syn::ItemEnum = parse_quote! {
+            enum Test {
+                Maxed = 4294967295,
+                Next,
+            }
+        };
+        let data = DataEnum {
+            enum_token: item.enum_token,
+            brace_token: item.brace_token,
+            variants: item.variants,
+        };
+
+        let err = assign_codes(&data, ScerrMode::Basic).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Explicit discriminant cannot be u32::MAX"),
+            "unexpected error: {err}"
+        );
     }
 }

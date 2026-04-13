@@ -114,8 +114,8 @@ pub struct VaultState {
 pub enum VaultError {
     Unauthorized = 100,
     WrongSigner,
-    #[transparent]
-    Token(#[from] TokenError),
+    ProposalClosed = 400,
+    AlreadySettled,
 }
 
 #[test]

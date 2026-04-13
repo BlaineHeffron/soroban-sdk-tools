@@ -1039,6 +1039,39 @@ pub enum GroupedRangeCallerError {
 }
 
 #[contract]
+pub struct GroupedRangeContract;
+
+#[contractimpl]
+impl GroupedRangeContract {
+    pub fn fail_proposal_time() -> Result<(), GroupedRangeError> {
+        Err(GroupedRangeError::ProposalVotingTime)
+    }
+}
+
+#[scerr]
+pub enum GroupedRangeFccError {
+    Unauthorized,
+
+    #[from_contract_client]
+    Inner(GroupedRangeError),
+}
+
+#[contract]
+pub struct GroupedRangeFccContract;
+
+#[contractimpl]
+impl GroupedRangeFccContract {
+    pub fn call_grouped_fail(
+        env: Env,
+        grouped_id: Address,
+    ) -> Result<(), GroupedRangeFccError> {
+        let client = GroupedRangeContractClient::new(&env, &grouped_id);
+        client.try_fail_proposal_time()??;
+        Ok(())
+    }
+}
+
+#[contract]
 pub struct StorageContract;
 
 #[contractimpl]
@@ -1545,6 +1578,41 @@ fn root_mode_wraps_basic_explicit_ranges_sequentially() {
     assert_eq!(
         <GroupedRangeCallerError as ContractError>::from_code(9),
         Some(GroupedRangeCallerError::Inner(
+            GroupedRangeError::ProposalVotingTime
+        ))
+    );
+}
+
+fn setup_grouped_range_contract(env: &Env) -> Address {
+    env.register(GroupedRangeContract, ())
+}
+
+fn setup_grouped_range_fcc_contract(env: &Env) -> Address {
+    env.register(GroupedRangeFccContract, ())
+}
+
+#[test]
+fn root_mode_fcc_wraps_basic_explicit_ranges_sequentially() {
+    let env = Env::default();
+    let grouped_id = setup_grouped_range_contract(&env);
+    let caller_id = setup_grouped_range_fcc_contract(&env);
+    let client = GroupedRangeFccContractClient::new(&env, &caller_id);
+
+    let result = client.try_call_grouped_fail(&grouped_id);
+    assert!(result.is_err());
+
+    let err = result.err().unwrap();
+    let decoded: GroupedRangeFccError = err.expect("should be a contract error");
+    assert_eq!(
+        decoded,
+        GroupedRangeFccError::Inner(GroupedRangeError::ProposalVotingTime)
+    );
+
+    let code = GroupedRangeFccError::Inner(GroupedRangeError::ProposalVotingTime).into_code();
+    assert_eq!(code, 9);
+    assert_eq!(
+        GroupedRangeFccError::from_code(code),
+        Some(GroupedRangeFccError::Inner(
             GroupedRangeError::ProposalVotingTime
         ))
     );
