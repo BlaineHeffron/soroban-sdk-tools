@@ -1,0 +1,368 @@
+{
+  "measured_at": "2026-04-13T19:20:10Z",
+  "network": "mainnet",
+  "source_alias": "mainnet-study-headless",
+  "sample_addresses": {
+    "admin": "GDLU66RFXDGY35EB5M3N7V527DMM7YS7YJCEOCCVZ643TJ5ZD5KQZLIP",
+    "owner": "GAD6S4XG7YTXBNAERD2CHBXAJI5PCCUQP2IMWBVWPK4QSI447VXH6L5Q",
+    "spender": "GD2BZLIXCW26JNKA24CTRUZO54KS3QBLT2EQ65WOMRZAPR7ZRICUJCMT",
+    "recipient": "GAIMAFTTCIUKPVDPZXBRD5A7WYIP3AQXJCIQ5HGJLUUAT4UIQT7TEHY3"
+  },
+  "deployments": [
+    {
+      "family": "increment",
+      "variant": "manual",
+      "package": "soroban-case-study-increment-manual",
+      "contract_id": "CAPFYJKEG4TLAQM5WV2IFXTYVGHDW5ZLFYRPCSZZA3L4PQFMRTHSBBGK"
+    },
+    {
+      "family": "increment",
+      "variant": "auto",
+      "package": "soroban-case-study-increment-auto",
+      "contract_id": "CARIEWYYXKG7XQX36U2E3HS6SUYZAQDKMSOT7M5ZYLCH4KNGDYZPNTSQ"
+    },
+    {
+      "family": "increment",
+      "variant": "symbolic",
+      "package": "soroban-case-study-increment-symbolic",
+      "contract_id": "CBZMMMS3LF7B75UOLMOW4YVE2ZO3U7ZSGTXQF45XQ6HIC3OSHILCCXA5"
+    },
+    {
+      "family": "account",
+      "variant": "manual",
+      "package": "soroban-case-study-account-manual",
+      "contract_id": "CD72I7C6D2DPJOGGNBCBJDNT543QHCFTAFN6OJKRGE3HZJH4J6YKG5ZN"
+    },
+    {
+      "family": "account",
+      "variant": "auto",
+      "package": "soroban-case-study-account-auto",
+      "contract_id": "CCTMB2WSRSEIQDCMSPMRBW7ZFAPRVWW44QY7T65E2KNK5LFO6EY7FXFT"
+    },
+    {
+      "family": "account",
+      "variant": "symbolic",
+      "package": "soroban-case-study-account-symbolic",
+      "contract_id": "CBAK2C3IZPRNNLJ5HZP74HUQJAFACTJCQ3HDW3SYL6NEE4A5APTYFQ3M"
+    },
+    {
+      "family": "token-lite",
+      "variant": "manual",
+      "package": "soroban-case-study-token-lite-manual",
+      "contract_id": "CDEUDPF6XRATUYXRLZTH5SO77WFLNYUYGGOSQIXEP3UR5WT7ROC63X2T"
+    },
+    {
+      "family": "token-lite",
+      "variant": "auto",
+      "package": "soroban-case-study-token-lite-auto",
+      "contract_id": "CCO52ESXRRYTUEIZQ7NYDXC7H24KL56CHI5Q64OCNGAMWC4B37UUCDQ4"
+    },
+    {
+      "family": "token-lite",
+      "variant": "symbolic",
+      "package": "soroban-case-study-token-lite-symbolic",
+      "contract_id": "CAUA365AYUIHAVNRHXYIYWYW27FCAQH23W4BRDRVWGB527HQTV3ESB46"
+    }
+  ],
+  "measurements": [
+    {
+      "family": "increment",
+      "variant": "manual",
+      "key": "counter",
+      "durability": "instance",
+      "bytes": 16,
+      "citation_tx_hash": "ac81457ed83429037740b58b870747fea2ab5a7c4d700af8e6718f586818646c",
+      "citation_url": "https://stellar.expert/explorer/public/tx/ac81457ed83429037740b58b870747fea2ab5a7c4d700af8e6718f586818646c"
+    },
+    {
+      "family": "increment",
+      "variant": "auto",
+      "key": "counter",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "4b0903aca99e471bcf96bf9fac04753073f40bc03ec663df15938b49cdc74106",
+      "citation_url": "https://stellar.expert/explorer/public/tx/4b0903aca99e471bcf96bf9fac04753073f40bc03ec663df15938b49cdc74106"
+    },
+    {
+      "family": "increment",
+      "variant": "symbolic",
+      "key": "counter",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "7b922201fc15804b14db99218c109cfb4b074dd12504c016462ca2dfa5e9bab9",
+      "citation_url": "https://stellar.expert/explorer/public/tx/7b922201fc15804b14db99218c109cfb4b074dd12504c016462ca2dfa5e9bab9"
+    },
+    {
+      "family": "account",
+      "variant": "manual",
+      "key": "owner",
+      "durability": "instance",
+      "bytes": 28,
+      "citation_tx_hash": "a1c2479083b97db4c1b8a09872263cec3b1bfbfd5fbf4a406721f3e74d2caabc",
+      "citation_url": "https://stellar.expert/explorer/public/tx/a1c2479083b97db4c1b8a09872263cec3b1bfbfd5fbf4a406721f3e74d2caabc"
+    },
+    {
+      "family": "account",
+      "variant": "manual",
+      "key": "guardian",
+      "durability": "instance",
+      "bytes": 28,
+      "citation_tx_hash": "bcfc67bc22464f388f3b0ef11905d99a8a9ef3d50004a8fce21bf340c99281df",
+      "citation_url": "https://stellar.expert/explorer/public/tx/bcfc67bc22464f388f3b0ef11905d99a8a9ef3d50004a8fce21bf340c99281df"
+    },
+    {
+      "family": "account",
+      "variant": "manual",
+      "key": "nonce",
+      "durability": "instance",
+      "bytes": 28,
+      "citation_tx_hash": "ceb490f43a68f075aa86bcd4374405b8a436cd84b06fa0f9ea1bb240ec4aac20",
+      "citation_url": "https://stellar.expert/explorer/public/tx/ceb490f43a68f075aa86bcd4374405b8a436cd84b06fa0f9ea1bb240ec4aac20"
+    },
+    {
+      "family": "account",
+      "variant": "auto",
+      "key": "owner",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "d6a04b16393a6210d3747511193a26f0f37ce0a3ffab35cc7d1a63fb7bff7f7e",
+      "citation_url": "https://stellar.expert/explorer/public/tx/d6a04b16393a6210d3747511193a26f0f37ce0a3ffab35cc7d1a63fb7bff7f7e"
+    },
+    {
+      "family": "account",
+      "variant": "auto",
+      "key": "guardian",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "00fbfdf9243b18aaedd72c93abed3c5c32d3d8db2836fc966f508bfc32067058",
+      "citation_url": "https://stellar.expert/explorer/public/tx/00fbfdf9243b18aaedd72c93abed3c5c32d3d8db2836fc966f508bfc32067058"
+    },
+    {
+      "family": "account",
+      "variant": "auto",
+      "key": "nonce",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "966339cab8ffcdd397f1853f727cb92838cfd9c5b979831ad300fb87813efe04",
+      "citation_url": "https://stellar.expert/explorer/public/tx/966339cab8ffcdd397f1853f727cb92838cfd9c5b979831ad300fb87813efe04"
+    },
+    {
+      "family": "account",
+      "variant": "symbolic",
+      "key": "owner",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "85ca391bafb709ebb0ae51f5d80403d3e6f34eb465083e5d6d2f06485ebb7ee6",
+      "citation_url": "https://stellar.expert/explorer/public/tx/85ca391bafb709ebb0ae51f5d80403d3e6f34eb465083e5d6d2f06485ebb7ee6"
+    },
+    {
+      "family": "account",
+      "variant": "symbolic",
+      "key": "guardian",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "02744a5fb9f27f4c16a627f164b08415fb26d51755d018b635b51d5594ea8408",
+      "citation_url": "https://stellar.expert/explorer/public/tx/02744a5fb9f27f4c16a627f164b08415fb26d51755d018b635b51d5594ea8408"
+    },
+    {
+      "family": "account",
+      "variant": "symbolic",
+      "key": "nonce",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "39339b71588499fade9d130743e28e82532968c410bde03953139fdbae968aea",
+      "citation_url": "https://stellar.expert/explorer/public/tx/39339b71588499fade9d130743e28e82532968c410bde03953139fdbae968aea"
+    },
+    {
+      "family": "token-lite",
+      "variant": "manual",
+      "key": "admin",
+      "durability": "instance",
+      "bytes": 28,
+      "citation_tx_hash": "814a4a9ae8322cc7d26b7cedbe7fd2fdfaaee9e5875a2364d01d13a5136b3e5d",
+      "citation_url": "https://stellar.expert/explorer/public/tx/814a4a9ae8322cc7d26b7cedbe7fd2fdfaaee9e5875a2364d01d13a5136b3e5d"
+    },
+    {
+      "family": "token-lite",
+      "variant": "manual",
+      "key": "balance(address)",
+      "durability": "persistent",
+      "bytes": 72,
+      "citation_tx_hash": "71f51730dd0c3654188b5c4b28408c0ca6f274226a4fa79082dd5201b32a96fd",
+      "citation_url": "https://stellar.expert/explorer/public/tx/71f51730dd0c3654188b5c4b28408c0ca6f274226a4fa79082dd5201b32a96fd"
+    },
+    {
+      "family": "token-lite",
+      "variant": "manual",
+      "key": "allowance(owner,spender)",
+      "durability": "persistent",
+      "bytes": 164,
+      "citation_tx_hash": "281c75e44f1743cb2e93f745419711fd00159e5f5fb65fba852adb96741accac",
+      "citation_url": "https://stellar.expert/explorer/public/tx/281c75e44f1743cb2e93f745419711fd00159e5f5fb65fba852adb96741accac"
+    },
+    {
+      "family": "token-lite",
+      "variant": "auto",
+      "key": "admin",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "c1e04eda235faeb27054a69f8f62775773e4ffd6dea990eae4acdd8dccc4e388",
+      "citation_url": "https://stellar.expert/explorer/public/tx/c1e04eda235faeb27054a69f8f62775773e4ffd6dea990eae4acdd8dccc4e388"
+    },
+    {
+      "family": "token-lite",
+      "variant": "auto",
+      "key": "balance(address)",
+      "durability": "persistent",
+      "bytes": 40,
+      "citation_tx_hash": "e62dcf486f99942b0d4eda20718af9f39cae4a698ce93f6b40f3d398bf8cb7c7",
+      "citation_url": "https://stellar.expert/explorer/public/tx/e62dcf486f99942b0d4eda20718af9f39cae4a698ce93f6b40f3d398bf8cb7c7"
+    },
+    {
+      "family": "token-lite",
+      "variant": "auto",
+      "key": "allowance(owner,spender)",
+      "durability": "persistent",
+      "bytes": 40,
+      "citation_tx_hash": "31c396c1e999e146911fa5c4b6a587d95ac258dd2e8e7f812d77b5e276c6a324",
+      "citation_url": "https://stellar.expert/explorer/public/tx/31c396c1e999e146911fa5c4b6a587d95ac258dd2e8e7f812d77b5e276c6a324"
+    },
+    {
+      "family": "token-lite",
+      "variant": "symbolic",
+      "key": "admin",
+      "durability": "instance",
+      "bytes": 12,
+      "citation_tx_hash": "2a0ef9253ea28662c4de317f8c47e231c23553fc481ee84d66bd1cd1f72df856",
+      "citation_url": "https://stellar.expert/explorer/public/tx/2a0ef9253ea28662c4de317f8c47e231c23553fc481ee84d66bd1cd1f72df856"
+    },
+    {
+      "family": "token-lite",
+      "variant": "symbolic",
+      "key": "balance(address)",
+      "durability": "persistent",
+      "bytes": 68,
+      "citation_tx_hash": "6b5ff0cef3be5c316c2b25e7f7af0ce1ec928cd219195f4ed0cc5021d1cf3c5c",
+      "citation_url": "https://stellar.expert/explorer/public/tx/6b5ff0cef3be5c316c2b25e7f7af0ce1ec928cd219195f4ed0cc5021d1cf3c5c"
+    },
+    {
+      "family": "token-lite",
+      "variant": "symbolic",
+      "key": "allowance(owner,spender)",
+      "durability": "persistent",
+      "bytes": 124,
+      "citation_tx_hash": "5b520a817e138e00f989aac76c0c0ce05c997f49139f206877edbca827837e9b",
+      "citation_url": "https://stellar.expert/explorer/public/tx/5b520a817e138e00f989aac76c0c0ce05c997f49139f206877edbca827837e9b"
+    }
+  ],
+  "interaction_totals": [
+    {
+      "family": "increment",
+      "interaction": "increment",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 12
+        },
+        {
+          "variant": "manual",
+          "bytes": 16
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 12
+        }
+      ]
+    },
+    {
+      "family": "account",
+      "interaction": "initialize",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 36
+        },
+        {
+          "variant": "manual",
+          "bytes": 84
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 36
+        }
+      ]
+    },
+    {
+      "family": "account",
+      "interaction": "rotate_guardian",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 12
+        },
+        {
+          "variant": "manual",
+          "bytes": 28
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 12
+        }
+      ]
+    },
+    {
+      "family": "token-lite",
+      "interaction": "mint",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 52
+        },
+        {
+          "variant": "manual",
+          "bytes": 100
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 80
+        }
+      ]
+    },
+    {
+      "family": "token-lite",
+      "interaction": "approve",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 40
+        },
+        {
+          "variant": "manual",
+          "bytes": 164
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 124
+        }
+      ]
+    },
+    {
+      "family": "token-lite",
+      "interaction": "transfer_from",
+      "variants": [
+        {
+          "variant": "auto",
+          "bytes": 120
+        },
+        {
+          "variant": "manual",
+          "bytes": 308
+        },
+        {
+          "variant": "symbolic",
+          "bytes": 260
+        }
+      ]
+    }
+  ]
+}

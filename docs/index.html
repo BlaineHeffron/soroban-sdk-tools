@@ -49,6 +49,7 @@
         <a href="index.html">Overview</a>
         <a href="migration.html">Migration</a>
         <a href="examples.html">Comparisons</a>
+        <a href="case-study.html">Case Study</a>
         <a href="https://crates.io/crates/soroban-sdk-tools" rel="noopener">Crates.io</a>
         <a href="https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/" rel="noopener">Docs</a>
         <a href="https://github.com/BlaineHeffron/soroban-sdk-tools" rel="noopener">GitHub</a>
@@ -68,6 +69,7 @@
             <div class="hero-actions">
               <a class="button button-primary" href="migration.html">Start migrating</a>
               <a class="button button-secondary" href="examples.html">Inspect comparisons</a>
+              <a class="button button-secondary" href="case-study.html">Read mainnet study</a>
             </div>
             <div class="install-strip">
               <div class="install-strip-header">
@@ -102,7 +104,7 @@ cargo add soroban-sdk-tools --dev --features testutils</code></pre>
                 <span class="terminal-kicker">Error composition</span>
                 <span class="terminal-kicker">Auth tests</span>
               </div>
-              <pre><code>#[contractstorage]
+              <pre><code class="language-rust">#[contractstorage]
 pub struct VaultState {
     owner: InstanceItem&lt;Address&gt;,
     balances: PersistentMap&lt;Address, i128&gt;,
@@ -115,10 +117,14 @@ pub enum VaultError {
     Token(#[from] TokenError),
 }
 
-token::AuthClient::new(env, &amp;token_id)
-    .transfer(&amp;from, &amp;to, &amp;amount)
-    .authorize(&amp;from)
-    .invoke();</code></pre>
+#[test]
+fn transfer_auth_flow() {
+    let env = Env::default();
+    token::AuthClient::new(&amp;env, &amp;token_id)
+        .transfer(&amp;from, &amp;to, &amp;amount)
+        .authorize(&amp;from)
+        .invoke();
+}</code></pre>
             </div>
             <div class="hero-signals" aria-label="Key benefits">
               <div class="signal">
@@ -210,6 +216,10 @@ token::AuthClient::new(env, &amp;token_id)
           <a class="path-card" href="examples.html">
             <h3>Code comparisons</h3>
             <p>See what gets shorter and what stays explicit.</p>
+          </a>
+          <a class="path-card" href="case-study.html">
+            <h3>Mainnet case study</h3>
+            <p>Review live storage-key measurements for manual, auto, and symbolic routes.</p>
           </a>
           <a class="path-card" href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples">
             <h3>Repository examples</h3>

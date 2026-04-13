@@ -30,6 +30,7 @@
         <a href="index.html">Overview</a>
         <a href="migration.html">Migration</a>
         <a href="examples.html">Comparisons</a>
+        <a href="case-study.html">Case Study</a>
         <a href="https://crates.io/crates/soroban-sdk-tools" rel="noopener">Crates.io</a>
         <a href="https://docs.rs/soroban-sdk-tools/latest/soroban_sdk_tools/" rel="noopener">Docs</a>
         <a href="https://github.com/BlaineHeffron/soroban-sdk-tools" rel="noopener">GitHub</a>
@@ -53,7 +54,7 @@
         <div class="comparison-grid">
           <article class="code-panel">
             <h3>Manual pattern</h3>
-            <pre><code>#[derive(Clone)]
+            <pre><code class="language-rust">#[derive(Clone)]
 #[contracttype]
 enum DataKey {
     Value,
@@ -73,7 +74,7 @@ pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
           </article>
           <article class="code-panel">
             <h3>With #[contractstorage]</h3>
-            <pre><code>#[contractstorage]
+            <pre><code class="language-rust">#[contractstorage]
 pub struct Counter {
     value: InstanceItem&lt;u32&gt;,
 }
@@ -98,7 +99,7 @@ pub fn increment_by(env: &amp;Env, amount: u32) -&gt; u32 {
         <div class="comparison-grid">
           <article class="code-panel">
             <h3>Manual pattern</h3>
-            <pre><code>#[contracterror]
+            <pre><code class="language-rust">#[contracterror]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum AppError {
     ExternalDivisionByZero = 1,
@@ -137,7 +138,7 @@ pub fn safe_div_with(
           </article>
           <article class="code-panel">
             <h3>With #[scerr]</h3>
-            <pre><code>#[scerr]
+            <pre><code class="language-rust">#[scerr]
 pub enum Error {
     #[from_contract_client]
     Math(#[from] external::MathError),
@@ -168,7 +169,7 @@ pub fn safe_div_with(
         <div class="comparison-grid">
           <article class="code-panel">
             <h3>Manual MockAuth</h3>
-            <pre><code>env.mock_auths(&amp;[
+            <pre><code class="language-rust">env.mock_auths(&amp;[
     soroban_sdk::testutils::MockAuth {
         address: &amp;alice,
         invoke: &amp;soroban_sdk::testutils::MockAuthInvoke {
@@ -184,14 +185,68 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
           </article>
           <article class="code-panel">
             <h3>Generated AuthClient</h3>
-            <pre><code>token::AuthClient::new(env, &amp;contract_id)
-    .transfer(&amp;alice, &amp;bob, &amp;300)
-    .authorize(&amp;alice)
-    .invoke();</code></pre>
+            <pre><code class="language-rust">#[test]
+fn transfer_auth_flow() {
+    let env = Env::default();
+    token::AuthClient::new(&amp;env, &amp;contract_id)
+        .transfer(&amp;alice, &amp;bob, &amp;300)
+        .authorize(&amp;alice)
+        .invoke();
+}</code></pre>
           </article>
         </div>
         <p class="comparison-note">
           Both tests authorize the same transfer. The builder version reads more like the call you're trying to test.
+        </p>
+      </section>
+
+      <section class="section comparison-section reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Nested auth</p>
+          <h2>Same nested invocation, less auth tree boilerplate</h2>
+        </div>
+        <div class="comparison-grid">
+          <article class="code-panel">
+            <h3>Manual nested MockAuthInvoke</h3>
+            <pre><code class="language-rust">#[test]
+fn trade_with_nested_auth_manual() {
+    let transfer_sub = soroban_sdk::testutils::MockAuthInvoke {
+        contract: &amp;token_id,
+        fn_name: "transfer_from",
+        args: (&amp;buyer, &amp;buyer, &amp;seller, &amp;amount).into_val(&amp;env),
+        sub_invokes: &amp;[],
+    };
+
+    let trade_root = soroban_sdk::testutils::MockAuthInvoke {
+        contract: &amp;market_id,
+        fn_name: "trade",
+        args: (&amp;buyer, &amp;seller, &amp;offer_id, &amp;amount).into_val(&amp;env),
+        sub_invokes: &amp;[transfer_sub],
+    };
+
+    env.mock_auths(&amp;[
+        soroban_sdk::testutils::MockAuth { address: &amp;buyer, invoke: &amp;trade_root },
+        soroban_sdk::testutils::MockAuth { address: &amp;seller, invoke: &amp;trade_root },
+    ]);
+
+    market::Client::new(&amp;env, &amp;market_id)
+        .trade(&amp;buyer, &amp;seller, &amp;offer_id, &amp;amount);
+}</code></pre>
+          </article>
+          <article class="code-panel">
+            <h3>With AuthClient</h3>
+            <pre><code class="language-rust">#[test]
+fn trade_with_nested_auth() {
+    market::AuthClient::new(&amp;env, &amp;market_id)
+        .trade(&amp;buyer, &amp;seller, &amp;offer_id, &amp;amount)
+        .authorize(&amp;buyer)
+        .authorize(&amp;seller)
+        .invoke();
+}</code></pre>
+          </article>
+        </div>
+        <p class="comparison-note">
+          Both tests authorize the same trade call. The manual version builds the nested invoke tree directly; <code>AuthClient</code> keeps the test focused on who authorizes the call.
         </p>
       </section>
 
@@ -215,7 +270,7 @@ client.transfer(&amp;alice, &amp;bob, &amp;300);</code></pre>
     </main>
 
     <footer class="site-footer">
-      <p>See these patterns in action: <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/increment">increment</a>, <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/errors">errors</a>, <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/auth/token">token auth</a></p>
+      <p>See these patterns in action: <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/increment">increment</a>, <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/errors">errors</a>, <a href="https://github.com/BlaineHeffron/soroban-sdk-tools/tree/main/examples/auth/token">token auth</a>, and the <a href="case-study.html">mainnet key-size case study</a>.</p>
     </footer>
   </div>
   <script src="script.js"></script>

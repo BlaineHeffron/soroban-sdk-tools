@@ -393,9 +393,7 @@ mod convenience {
         }
 
         pub fn update_value(env: Env, amount: u64) -> u64 {
-            ConvenienceStorage::update_value(&env, |current| {
-                current.unwrap_or(0) + amount
-            })
+            ConvenienceStorage::update_value(&env, |current| current.unwrap_or(0) + amount)
         }
 
         // Map one-liners

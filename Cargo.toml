@@ -5,6 +5,7 @@ members = [
     "soroban-sdk-tools-macro",
     "examples/*/Cargo.toml",
     "examples/features",
+    "examples/case-study/*",
     "examples/errors/*",
     "examples/auth/*",
 ]

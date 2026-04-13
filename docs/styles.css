@@ -36,6 +36,15 @@
   --copy-width: 1240px;
   --mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   --sans: "Outfit", system-ui, -apple-system, sans-serif;
+  --rust-keyword: #7dc8ff;
+  --rust-type: #9d9dff;
+  --rust-macro: #5eead4;
+  --rust-string: #f4c58f;
+  --rust-comment: #8f9bb3;
+  --rust-number: #f9a8d4;
+  --rust-bool: #f39bc1;
+  --rust-attr: #8de2bf;
+  --rust-lifetime: #f8d17a;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -91,6 +100,15 @@ a:hover { color: var(--text-bright); }
 code, pre { font-family: var(--mono); }
 code { font-size: 0.9em; color: var(--accent); background: rgba(87, 228, 203, 0.12); padding: 0.15em 0.4em; border-radius: 4px; }
 pre code { background: none; padding: 0; color: inherit; font-size: 0.92rem; }
+pre code .tok-comment { color: var(--rust-comment); font-style: italic; }
+pre code .tok-string { color: var(--rust-string); }
+pre code .tok-number { color: var(--rust-number); }
+pre code .tok-bool { color: var(--rust-bool); font-weight: 600; }
+pre code .tok-keyword { color: var(--rust-keyword); font-weight: 600; }
+pre code .tok-type { color: var(--rust-type); }
+pre code .tok-macro { color: var(--rust-macro); }
+pre code .tok-attribute { color: var(--rust-attr); }
+pre code .tok-lifetime { color: var(--rust-lifetime); }
 
 h1, h2, h3, h4 { color: var(--text-bright); font-weight: 700; }
 p { margin: 0 0 1rem; }
@@ -802,6 +820,165 @@ ul, ol { line-height: 1.7; }
   font-size: 1rem;
 }
 
+/* ── case study ── */
+.case-hero {
+  overflow: hidden;
+}
+
+.case-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.case-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(87, 228, 203, 0.08);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.stat-panel {
+  padding: 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-panel h3 {
+  margin: 0.35rem 0 0.5rem;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.stat-panel p:last-child {
+  margin-bottom: 0;
+  color: var(--text-muted);
+}
+
+.case-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.insight-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.insight-panel {
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(22, 54, 46, 0.5), rgba(16, 24, 48, 0.5));
+}
+
+.insight-panel h3 {
+  margin: 0 0 0.55rem;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.insight-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.table-card {
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+.table-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.table-card p:last-child {
+  color: var(--text-muted);
+}
+
+.measure-table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.measure-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.measure-table th,
+.measure-table td {
+  padding: 0.9rem 0.95rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.measure-table th {
+  color: var(--text-bright);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.measure-table td {
+  color: var(--text);
+}
+
+.measure-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.measure-table td code {
+  word-break: break-all;
+}
+
+.cite-link {
+  display: inline-block;
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  vertical-align: baseline;
+}
+
+.cite-link:hover {
+  color: var(--text-bright);
+}
+
+.method-list,
+.findings-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.method-list li,
+.findings-list li {
+  margin-bottom: 0.45rem;
+}
+
 /* ── reveal motion ── */
 .reveal {
   opacity: 0;
@@ -858,8 +1035,10 @@ ul, ol { line-height: 1.7; }
   .hero-proof,
   .hero-signals,
   .capability-grid,
+  .stats-grid,
   .story-section,
   .two-column,
+  .case-grid,
   .section-grid,
   .content-grid,
   .comparison-grid,

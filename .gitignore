@@ -10,6 +10,7 @@ docs/*
 !docs/index.html
 !docs/migration.html
 !docs/examples.html
+!docs/case-study.html
 !docs/styles.css
 !docs/script.js
 !docs/logo.png
@@ -17,6 +18,8 @@ docs/*
 !docs/favicon.png
 !docs/favicon.svg
 !docs/favicon.ico
+!docs/data/
+!docs/data/case-study-results.json
 !docs/scerr-presentation.html
 !docs/scerr-presentation.md
 !docs/scerr-presentation.pdf
