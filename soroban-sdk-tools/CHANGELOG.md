@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.2...soroban-sdk-tools-v0.1.3) - 2026-04-13
+
+### Added
+
+- add nested sub-invocation support to real auth flow
+- add nested mock auth
+
+### Fixed
+
+- update tests for new auth API and __constructor ([#32](https://github.com/BlaineHeffron/soroban-sdk-tools/pull/32))
+- add explicit lifetime to mock_auth_invocation return type
+
+### Other
+
+- Add mainnet storage case study site
+- main into feat/soroban-examples-sdk-tools
+- Merge pull request #30 from BlaineHeffron/feat/nested_auth
+
 ## [0.1.2](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.1...soroban-sdk-tools-v0.1.2) - 2026-02-24
 
 ### Other
