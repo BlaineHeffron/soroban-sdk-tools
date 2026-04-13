@@ -112,9 +112,10 @@ pub struct VaultState {
 
 #[scerr]
 pub enum VaultError {
-    Unauthorized,
-    #[transparent]
-    Token(#[from] TokenError),
+    Unauthorized = 100,
+    WrongSigner,
+    ProposalClosed = 400,
+    AlreadySettled,
 }
 
 #[test]
@@ -133,7 +134,7 @@ fn transfer_auth_flow() {
               </div>
               <div class="signal">
                 <span class="signal-value">predictable</span>
-                <span class="signal-label">error codes stay sequential without hand maintenance</span>
+                <span class="signal-label">native error ranges stay intentional without breaking composition</span>
               </div>
               <div class="signal">
                 <span class="signal-value">readable</span>
@@ -162,7 +163,7 @@ fn transfer_auth_flow() {
             <p class="card-kicker">Errors</p>
             <h3>Composable errors with predictable codes</h3>
             <p>
-              <code>#[scerr]</code> keeps codes in order and gets the conversion glue out of your way.
+              <code>#[scerr]</code> handles sequential enums and anchored ranges like <code>100-199</code> without extra glue.
             </p>
           </article>
 
