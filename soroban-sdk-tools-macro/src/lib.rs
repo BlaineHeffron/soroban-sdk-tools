@@ -159,21 +159,16 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 /// - **Internal trait** (`{Trait}Internal`): Pure business logic that providers implement
 /// - **Outer trait** (`{Trait}`): Auth-enforced wrapper with `type Provider` for DI
 /// - **AuthClient** (`{Trait}AuthClient`): Test helper for authorization testing
-/// - **Sealed macro** (`impl_{trait_snake}!`): Non-overridable auth wiring (if `#[auth]` methods exist)
 ///
 /// Methods annotated with `#[auth(Self::method)]` get structural auth enforcement:
 /// the outer trait's default method calls `require_auth()` on the resolved address
 /// before delegating to the internal implementation.
 ///
-/// # Security
-///
-/// For maximum auth enforcement, use the generated `impl_{trait_snake}!` macro
-/// instead of `#[contractimpl(contracttrait)]`. The helper macro generates auth
-/// methods as inherent `#[contractimpl]` methods that cannot be overridden.
-///
 /// # Example
 ///
 /// ```ignore
+/// use soroban_sdk_tools::{contracttrait, contractimpl};
+///
 /// #[contracttrait]
 /// pub trait Ownable {
 ///     fn owner(env: &Env) -> Address;
@@ -193,10 +188,7 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 ///     }
 /// }
 ///
-/// // Option A: Sealed (recommended) -- auth cannot be overridden
-/// impl_ownable!(MyContract, SingleOwner);
-///
-/// // Option B: Flexible -- auth can be customized via override
+/// // Wire to contract -- auth is enforced via trait defaults
 /// #[contractimpl(contracttrait)]
 /// impl Ownable for MyContract {
 ///     type Provider = SingleOwner;
@@ -205,4 +197,35 @@ pub fn contractimport(attr: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn contracttrait(attr: TokenStream, item: TokenStream) -> TokenStream {
     contract::contracttrait_impl(attr, item)
+}
+
+/// Implement a contract or a composable trait on a contract type.
+///
+/// This is a pass-through to `soroban_sdk::contractimpl` that allows you to
+/// use a single import for all soroban-sdk-tools macros.
+///
+/// When used with `contracttrait`, auth enforcement from `#[auth]` annotations
+/// is automatically applied via the trait's default method implementations.
+///
+/// # Example
+///
+/// ```ignore
+/// use soroban_sdk_tools::{contracttrait, contractimpl};
+///
+/// // Trait with auth enforcement
+/// #[contractimpl(contracttrait)]
+/// impl Ownable for MyContract {
+///     type Provider = SingleOwner;
+///     // Auth is enforced via defaults -- no need to write require_auth()
+/// }
+///
+/// // Regular contract methods
+/// #[contractimpl]
+/// impl MyContract {
+///     pub fn init(env: Env, owner: Address) { /* ... */ }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn contractimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    contract::contractimpl_impl(attr, item)
 }

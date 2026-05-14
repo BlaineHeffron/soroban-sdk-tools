@@ -1,18 +1,31 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, Address, Env};
-use soroban_sdk_tools::{contractstorage, contracttrait, InstanceItem};
+//! Composable contract traits example: Ownable + Pausable.
+//!
+//! Demonstrates `#[contracttrait]` with `#[auth]` enforcement,
+//! `#[contractstorage]` for typed storage, and `#[contractimpl]`
+//! for wiring -- all from `soroban_sdk_tools`.
 
-// === Error types (production pattern, not .expect()) ===
+use soroban_sdk::{contract, contracterror, Address, Env};
+use soroban_sdk_tools::{contractimpl, contractstorage, contracttrait, InstanceItem};
+
+// ============================================================
+// Errors
+// ============================================================
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum ContractError {
-    NotInitialized = 1,
-    AlreadyInitialized = 2,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    ContractPaused = 3,
 }
 
-// === Storage using #[contractstorage] (namespaced keys, not raw strings) ===
+// ============================================================
+// Storage (namespaced via #[contractstorage])
+// ============================================================
+
 #[contractstorage]
 pub struct OwnableStorage {
     #[short_key = "own"]
@@ -25,28 +38,40 @@ pub struct PausableStorage {
     paused: InstanceItem<bool>,
 }
 
-// === Trait definitions using our macro ===
+// ============================================================
+// Trait definitions
+// ============================================================
 
+/// Ownership management with auth enforcement.
 #[contracttrait]
 pub trait Ownable {
+    /// Returns the current owner.
     fn owner(env: &Env) -> Address;
 
+    /// Transfer ownership. Requires current owner authorization.
     #[auth(Self::owner)]
     fn transfer_ownership(env: &Env, new_owner: Address);
 }
 
+/// Pause/unpause functionality. Auth comes from Ownable's owner.
 #[contracttrait]
 pub trait Pausable: Ownable {
+    /// Check if the contract is paused.
     fn is_paused(env: &Env) -> bool;
 
+    /// Pause the contract. Requires owner authorization.
     #[auth(Self::owner)]
     fn pause(env: &Env);
 
+    /// Unpause the contract. Requires owner authorization.
     #[auth(Self::owner)]
     fn unpause(env: &Env);
 }
 
-// === Provider: implements OwnableInternal + PausableInternal ===
+// ============================================================
+// Provider: business logic (no auth code here)
+// ============================================================
+
 pub struct StandardProvider;
 
 impl OwnableInternal for StandardProvider {
@@ -75,23 +100,29 @@ impl PausableInternal for StandardProvider {
     }
 }
 
-// === Contract wiring ===
+// ============================================================
+// Contract: wire traits via type Provider
+// ============================================================
+
 #[contract]
-pub struct TestContract;
+pub struct TraitTestContract;
 
+/// Wire Ownable -- auth is in the trait defaults, no impl_ownable! needed.
 #[contractimpl(contracttrait)]
-impl Ownable for TestContract {
+impl Ownable for TraitTestContract {
     type Provider = StandardProvider;
 }
 
+/// Wire Pausable -- auth comes from Ownable's owner via supertrait.
 #[contractimpl(contracttrait)]
-impl Pausable for TestContract {
+impl Pausable for TraitTestContract {
     type Provider = StandardProvider;
 }
 
+/// Contract-specific methods.
 #[contractimpl]
-impl TestContract {
-    /// Initialize the contract. Protected against double-initialization.
+impl TraitTestContract {
+    /// Initialize the contract with an owner. Protected against double-init.
     pub fn init(env: Env, owner: Address) -> Result<(), ContractError> {
         if OwnableStorage::has_owner(&env) {
             return Err(ContractError::AlreadyInitialized);
@@ -99,43 +130,61 @@ impl TestContract {
         OwnableStorage::set_owner(&env, &owner);
         Ok(())
     }
+
+    /// Example guarded action -- checks pause state before proceeding.
+    pub fn do_something(env: Env, caller: Address) -> Result<(), ContractError> {
+        if PausableStorage::get_paused(&env).unwrap_or(false) {
+            return Err(ContractError::ContractPaused);
+        }
+        caller.require_auth();
+        Ok(())
+    }
 }
 
-// === Tests: ALL using AuthClient, with negative security tests ===
+// ============================================================
+// Tests using contractimport! (loads compiled WASM)
+// ============================================================
+
 #[cfg(test)]
 mod test {
-    use super::*;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;
 
-    fn setup() -> (Env, Address, Address, TestContractClient<'static>) {
-        let env = Env::default();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-
-        let owner = Address::generate(&env);
-        let other = Address::generate(&env);
-
-        // Initialize with targeted auth (not mock_all_auths)
-        env.mock_auths(&[]);
-        // init doesn't require auth, so call directly
-        client.init(&owner);
-
-        (env, owner, other, client)
+    // Import the compiled WASM for realistic testing
+    mod contract {
+        soroban_sdk_tools::contractimport!(
+            file = "../../../target/stellar/soroban_trait_test.wasm"
+        );
     }
 
-    // ---- Positive auth tests (using AuthClient) ----
+    fn setup() -> (
+        Env,
+        soroban_sdk::Address,
+        contract::Client<'static>,
+        contract::AuthClient<'static>,
+    ) {
+        let env = Env::default();
+        let id = env.register(contract::WASM, ());
+        let client = contract::Client::new(&env, &id);
+        let auth = contract::AuthClient::new(&env, &id);
+        let owner = soroban_sdk::Address::generate(&env);
+        client.init(&owner);
+        (env, owner, client, auth)
+    }
+
+    // ---- Positive tests ----
+
+    #[test]
+    fn test_owner_returns_initialized_address() {
+        let (_env, owner, client, _auth) = setup();
+        assert_eq!(client.owner(), owner);
+    }
 
     #[test]
     fn test_transfer_ownership_with_auth() {
-        let (env, owner, _, _) = setup();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-        let auth = OwnableAuthClient::new(&env, &contract_id);
-        env.mock_auths(&[]);
-        client.init(&owner);
+        let (env, owner, client, auth) = setup();
+        let new_owner = soroban_sdk::Address::generate(&env);
 
-        let new_owner = Address::generate(&env);
         auth.transfer_ownership(&new_owner)
             .authorize(&owner)
             .invoke();
@@ -145,71 +194,72 @@ mod test {
 
     #[test]
     fn test_pause_unpause_with_auth() {
-        let (env, owner, _, _) = setup();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-        let pause_auth = PausableAuthClient::new(&env, &contract_id);
-        env.mock_auths(&[]);
-        client.init(&owner);
+        let (_env, owner, client, auth) = setup();
 
         assert!(!client.is_paused());
 
-        pause_auth.pause().authorize(&owner).invoke();
+        auth.pause().authorize(&owner).invoke();
         assert!(client.is_paused());
 
-        pause_auth.unpause().authorize(&owner).invoke();
+        auth.unpause().authorize(&owner).invoke();
         assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_do_something_while_paused_fails() {
+        let (env, owner, client, auth) = setup();
+        let caller = soroban_sdk::Address::generate(&env);
+
+        auth.pause().authorize(&owner).invoke();
+
+        let result = client.try_do_something(&caller);
+        assert!(result.is_err());
     }
 
     // ---- Negative security tests ----
 
     #[test]
     #[should_panic(expected = "HostError")]
-    fn test_transfer_without_auth_fails() {
-        let (env, owner, _, _) = setup();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-        env.mock_auths(&[]);
-        client.init(&owner);
-
-        // No auth setup -- this must fail
-        let new_owner = Address::generate(&env);
+    fn test_transfer_without_auth_panics() {
+        let (env, _owner, client, _auth) = setup();
+        let new_owner = soroban_sdk::Address::generate(&env);
+        // No auth -- structural enforcement means this panics
         client.transfer_ownership(&new_owner);
     }
 
     #[test]
     #[should_panic(expected = "HostError")]
-    fn test_pause_with_wrong_address_fails() {
-        let (env, owner, _, _) = setup();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-        let pause_auth = PausableAuthClient::new(&env, &contract_id);
-        env.mock_auths(&[]);
-        client.init(&owner);
-
-        let impostor = Address::generate(&env);
-        // Auth with wrong address -- must fail
-        pause_auth.pause().authorize(&impostor).invoke();
+    fn test_pause_with_wrong_address_panics() {
+        let (env, _owner, _client, auth) = setup();
+        let impostor = soroban_sdk::Address::generate(&env);
+        auth.pause().authorize(&impostor).invoke();
     }
 
     #[test]
     fn test_double_init_fails() {
-        let env = Env::default();
-        let contract_id = env.register(TestContract, ());
-        let client = TestContractClient::new(&env, &contract_id);
-
-        let owner = Address::generate(&env);
-        client.init(&owner);
-
-        // Second init must fail
+        let (env, owner, client, _auth) = setup();
         let result = client.try_init(&owner);
         assert!(result.is_err());
     }
 
-    // NOTE: Direct calls to StandardProvider methods (the Internal trait)
-    // bypass auth enforcement. This is documented in the security model.
-    // Use impl_ownable!() for sealed auth that prevents this bypass.
-    // We do not test this because Internal methods require contract context
-    // to access storage, and testing it would require mock_all_auths()
-    // which we deliberately avoid in this example.
+    #[test]
+    fn test_ownership_transfer_then_pause_requires_new_owner() {
+        let (env, owner, client, auth) = setup();
+        let new_owner = soroban_sdk::Address::generate(&env);
+
+        // Transfer ownership
+        auth.transfer_ownership(&new_owner)
+            .authorize(&owner)
+            .invoke();
+
+        // Old owner can no longer pause
+        let pause_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            auth.pause().authorize(&owner).invoke();
+        }));
+        assert!(pause_result.is_err());
+
+        // New owner can pause
+        auth.pause().authorize(&new_owner).invoke();
+        assert!(client.is_paused());
+    }
 }

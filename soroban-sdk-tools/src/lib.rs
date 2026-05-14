@@ -11,7 +11,9 @@
 pub use soroban_sdk;
 
 // Re-export procedural macros
-pub use soroban_sdk_tools_macro::{contractimport, contractstorage, contracttrait, scerr};
+pub use soroban_sdk_tools_macro::{
+    contractimpl, contractimport, contractstorage, contracttrait, scerr,
+};
 
 // Public modules
 pub mod error;

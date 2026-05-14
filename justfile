@@ -15,6 +15,7 @@ build:
     just _build soroban-auth-token
     just _build soroban-auth-vault
     just _build soroban-auth-swap
+    just _build soroban-trait-test
 
 [private]
 _build arg:

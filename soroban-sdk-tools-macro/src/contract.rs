@@ -699,6 +699,21 @@ fn map_supertraits_to_internal(trait_def: &ItemTrait) -> TokenStream2 {
 // Main macro entry point
 // -----------------------------------------------------------------------------
 
+/// Pass-through implementation of `#[contractimpl]`.
+///
+/// Delegates to `#[soroban_sdk::contractimpl]` with the same arguments.
+/// When `contracttrait` is specified, the trait's `#[auth]` defaults handle auth.
+pub fn contractimpl_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr2: TokenStream2 = attr.into();
+    let item2: TokenStream2 = item.into();
+    // Delegate directly to soroban_sdk::contractimpl with the original args
+    let output = quote! {
+        #[soroban_sdk::contractimpl(#attr2)]
+        #item2
+    };
+    output.into()
+}
+
 /// Main implementation of `#[contracttrait]`.
 pub fn contracttrait_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr2: TokenStream2 = attr.into();
