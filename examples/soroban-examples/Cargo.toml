@@ -50,10 +50,10 @@ publish = false
 rust-version = "1.88.0"
 
 [workspace.dependencies]
-soroban-sdk = "25.0.2"
+soroban-sdk = "26.0.1"
 soroban-sdk-tools = { path = "../../soroban-sdk-tools", version = "0.1.2" }
-soroban-token-sdk = "25.0.2"
-soroban-poseidon = "25.0.0"
+soroban-token-sdk = "26.0.1"
+soroban-poseidon = "26.0.0"
 soroban-workspace-contract-a-interface = { path = "workspace/contract_a_interface" }
 soroban-workspace-contract-a = { path = "workspace/contract_a" }
 
