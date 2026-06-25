@@ -24,4 +24,4 @@ _build arg:
 # Setup the project to use a pinned version of the CLI
 setup:
     git config core.hooksPath .githooks
-    -cargo binstall -y stellar-cli --version 25.1.0 --force --install-path ./target/bin
+    -cargo binstall -y stellar-cli --version 26.1.0 --force --install-path ./target/bin

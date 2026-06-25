@@ -29,7 +29,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install stellar-cli
-        uses: stellar/stellar-cli@v25.1.0
+        uses: stellar/stellar-cli@v26.1.0
 
       - name: Install just
         uses: taiki-e/install-action@just

@@ -10,8 +10,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-soroban-sdk = { version = "25.1.0", features = ["testutils"] }
-soroban-ledger-snapshot = { version = "25.1.0" }
+soroban-sdk = { version = "26.0.1", features = ["testutils"] }
+soroban-ledger-snapshot = { version = "26.0.1" }
 soroban-sdk-tools = { path = "../../../../soroban-sdk-tools", features = ["testutils"] }
 
 [dependencies.soroban-fuzzing-contract]
