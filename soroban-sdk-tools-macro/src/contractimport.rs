@@ -14,10 +14,19 @@ use sha2::{Digest, Sha256};
 use soroban_spec::read::from_wasm;
 use soroban_spec_rust::types::generate_type_ident;
 use std::fs;
-use stellar_xdr::curr::{ScSpecEntry, ScSpecTypeDef};
+use stellar_xdr::{ScSpecEntry, ScSpecTypeDef};
 use syn::Error;
 
 use crate::util::abs_from_rel_to_manifest;
+
+/// Generate a Rust type identifier for a spec type.
+///
+/// `generate_type_ident` became fallible in soroban-spec-rust 27, returning an
+/// error only for invalid UTF-8 or non-identifier type names. Spec types here
+/// come from a compiled WASM, so generation cannot fail for a valid contract.
+fn type_ident(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
+    generate_type_ident(type_def).expect("contractimport: invalid type in contract spec")
+}
 
 #[derive(Debug, FromMeta)]
 pub struct ContractImportArgs {
@@ -107,8 +116,8 @@ fn extract_functions(specs: &[ScSpecEntry]) -> Vec<FunctionInfo> {
 /// The standard Client methods return the Ok type (not the full Result).
 fn unwrap_result_type(type_def: &ScSpecTypeDef) -> proc_macro2::TokenStream {
     match type_def {
-        ScSpecTypeDef::Result(inner) => generate_type_ident(&inner.ok_type),
-        _ => generate_type_ident(type_def),
+        ScSpecTypeDef::Result(inner) => type_ident(&inner.ok_type),
+        _ => type_ident(type_def),
     }
 }
 
@@ -127,12 +136,12 @@ fn generate_try_return_type(outputs: &[ScSpecTypeDef]) -> proc_macro2::TokenStre
     } else {
         match &outputs[0] {
             ScSpecTypeDef::Result(inner) => {
-                let ok = generate_type_ident(&inner.ok_type);
-                let err = generate_type_ident(&inner.error_type);
+                let ok = type_ident(&inner.ok_type);
+                let err = type_ident(&inner.error_type);
                 (quote! { #ok }, quote! { #err })
             }
             other => {
-                let ty = generate_type_ident(other);
+                let ty = type_ident(other);
                 (quote! { #ty }, quote! { soroban_sdk::Error })
             }
         }
@@ -252,7 +261,7 @@ fn generate_auth_client_method(func: &FunctionInfo) -> proc_macro2::TokenStream 
     // Generate parameter list with explicit lifetime
     let params = func.inputs.iter().map(|input| {
         let name = format_ident!("{}", input.name);
-        let ty = generate_type_ident(&input.type_def);
+        let ty = type_ident(&input.type_def);
         quote! { #name: &'b #ty }
     });
 

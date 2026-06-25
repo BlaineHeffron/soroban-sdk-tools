@@ -28,9 +28,6 @@ members = [
     "mint-lock",
     "other_custom_types",
     "pause",
-    "privacy-pools/contract",
-    "privacy-pools/libs/lean-imt",
-    "privacy-pools/libs/zk",
     "simple_account",
     "single_offer",
     "timelock",
@@ -43,17 +40,22 @@ members = [
     "workspace/contract_b",
 ]
 
+# privacy-pools is its own workspace, frozen on soroban-sdk v25 / poseidon v25:
+# soroban-poseidon has no v27 release, and its contracts pull both
+# soroban-sdk-tools (v27 -> soroban-sdk 27) and soroban-poseidon (-> soroban-sdk 26)
+# which cannot coexist in one crate. See privacy-pools/Cargo.toml.
+exclude = ["privacy-pools"]
+
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
 publish = false
-rust-version = "1.88.0"
+rust-version = "1.91.0"
 
 [workspace.dependencies]
-soroban-sdk = "25.0.2"
+soroban-sdk = "27.0.0-rc.1"
 soroban-sdk-tools = { path = "../../soroban-sdk-tools", version = "0.1.2" }
-soroban-token-sdk = "25.0.2"
-soroban-poseidon = "25.0.0"
+soroban-token-sdk = "27.0.0-rc.1"
 soroban-workspace-contract-a-interface = { path = "workspace/contract_a_interface" }
 soroban-workspace-contract-a = { path = "workspace/contract_a" }
 
