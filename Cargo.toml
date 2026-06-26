@@ -16,11 +16,11 @@ version = "0.1.2"
 authors = ["Blaine Heffron", "Willem Wyndham"]
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.91"
 repository = "https://github.com/blaineheffron/soroban-sdk-tools"
 
 [workspace.dependencies]
-soroban-sdk = "26.0.1"
+soroban-sdk = "27.0.0-rc.1"
 soroban-sdk-tools = { path = "soroban-sdk-tools", version = "0.1.2" }
 soroban-sdk-tools-macro = { path = "soroban-sdk-tools-macro", version = "0.1.2" }
 
@@ -29,10 +29,10 @@ syn = { version = "2.0.114", features = ["full", "extra-traits"] }
 quote = "1.0.43"
 proc-macro2 = "1.0"
 darling = "0.23.0"
-soroban-spec = "23.4.1"
-soroban-spec-rust = "23.4.1"
-stellar-xdr = { version = "=23.0.0", default-features = false, features = [
-    "curr",
+soroban-spec = "27.0.0-rc.1"
+soroban-spec-rust = "27.0.0-rc.1"
+stellar-xdr = { version = "=27.0.0", default-features = false, features = [
+    "alloc",
 ] }
 
 
