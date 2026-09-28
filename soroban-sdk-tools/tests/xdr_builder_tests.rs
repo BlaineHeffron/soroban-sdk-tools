@@ -515,3 +515,66 @@ fn long_doc_string() {
     assert_eq!(cases.len(), 1);
     assert_eq!(cases[0].doc, doc);
 }
+
+// ---------------------------------------------------------------------------
+// Spec shaking marker
+// ---------------------------------------------------------------------------
+
+/// The const-fn marker must match the SDK's own marker for the same XDR,
+/// otherwise `stellar contract build` strips the error enum's spec entry.
+#[test]
+fn spec_shaking_marker_matches_soroban_spec() {
+    use soroban_sdk_tools::error::{sha256, spec_shaking_marker};
+
+    const TREE: &[SpecNode] = &[
+        SpecNode {
+            code: 1,
+            name: "Unauthorized",
+            description: "unauthorized",
+            children: &[],
+        },
+        SpecNode {
+            code: 2,
+            name: "Math",
+            description: "",
+            children: &[
+                SpecNode {
+                    code: 1,
+                    name: "DivByZero",
+                    description: "division by zero",
+                    children: &[],
+                },
+                SpecNode {
+                    code: 2,
+                    name: "Overflow",
+                    description: "overflow",
+                    children: &[],
+                },
+            ],
+        },
+        SpecNode {
+            code: UNKNOWN_ERROR_CODE,
+            name: "UnknownError",
+            description: "unknown",
+            children: &[],
+        },
+    ];
+    const N: usize = xdr_error_enum_size("AppError", "app error", TREE);
+    const XDR: [u8; N] = build_error_enum_xdr::<N>("AppError", "app error", TREE);
+    const MARKER: [u8; 14] = spec_shaking_marker(&XDR);
+
+    assert_eq!(MARKER, soroban_spec::shaking::generate_marker_for_xdr(&XDR));
+    assert!(MARKER.starts_with(b"SpEcV1"));
+
+    // Exercise every SHA-256 padding branch: empty, one block with the
+    // length in the same block, one block spilling into a second, and
+    // multiple complete blocks.
+    for len in [0usize, 3, 55, 56, 63, 64, 65, 119, 120, 128, 200] {
+        let input: Vec<u8> = (0..len).map(|i| (i * 7 + 3) as u8).collect();
+        let expected: [u8; 32] = {
+            use sha2::Digest as _;
+            sha2::Sha256::digest(&input).into()
+        };
+        assert_eq!(sha256(&input), expected, "sha256 mismatch for len {len}");
+    }
+}

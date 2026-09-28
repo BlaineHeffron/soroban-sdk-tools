@@ -946,7 +946,9 @@ fn generate_error_spec_impl(name: &Ident, infos: &[VariantInfo]) -> proc_macro2:
 /// Generate the WASM contract spec XDR for root-mode error enums.
 ///
 /// This produces a `link_section = "contractspecv0"` static containing XDR
-/// bytes for the error enum.  The XDR is built entirely at compile time via
+/// bytes for the error enum, plus the `SpecShakingMarker` impl that keeps
+/// that entry alive through `stellar contract build`'s spec shaking.
+/// The XDR is built entirely at compile time via
 /// const-fn helpers that walk the private `__SPEC_FULL_TREE` (which includes
 /// sentinels).  Inner types' variant names are flattened with prefixes
 /// (e.g. `Deep_DeepFailureOne`), and codes are remapped to sequential
@@ -959,6 +961,8 @@ fn generate_wasm_spec_root(enum_name: &Ident, enum_doc: &str) -> proc_macro2::To
 
     let full_tree_ident = format_ident!("__SPEC_FULL_TREE_{}", upper_enum);
 
+    let xdr_const_ident = format_ident!("__SPEC_XDR_BYTES_{}", upper_enum);
+
     quote! {
         const #len_ident: usize = soroban_sdk_tools::error::xdr_error_enum_size(
             #name_str,
@@ -966,13 +970,32 @@ fn generate_wasm_spec_root(enum_name: &Ident, enum_doc: &str) -> proc_macro2::To
             #full_tree_ident,
         );
 
-        #[cfg_attr(target_family = "wasm", link_section = "contractspecv0")]
-        pub static #spec_ident: [u8; #len_ident] =
+        const #xdr_const_ident: [u8; #len_ident] =
             soroban_sdk_tools::error::build_error_enum_xdr::<{ #len_ident }>(
                 #name_str,
                 #enum_doc,
                 #full_tree_ident,
             );
+
+        #[cfg_attr(target_family = "wasm", link_section = "contractspecv0")]
+        pub static #spec_ident: [u8; #len_ident] = #xdr_const_ident;
+
+        // Spec shaking marker (soroban-sdk 28+). `stellar contract build`
+        // strips every `contractspecv0` entry without a matching marker in
+        // the data section, so the marker must hash exactly the bytes above.
+        // Same shape as the impl emitted by the SDK's own `#[contracterror]`.
+        impl soroban_sdk::SpecShakingMarker for #enum_name {
+            #[doc(hidden)]
+            #[inline(always)]
+            fn spec_shaking_marker() {
+                #[cfg(target_family = "wasm")]
+                {
+                    static MARKER: [u8; soroban_sdk_tools::error::SPEC_SHAKING_MARKER_LEN] =
+                        soroban_sdk_tools::error::spec_shaking_marker(&#xdr_const_ident);
+                    let _ = unsafe { ::core::ptr::read_volatile(MARKER.as_ptr()) };
+                }
+            }
+        }
     }
 }
 

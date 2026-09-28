@@ -101,7 +101,7 @@ impl TokenInterface for Token {
             from,
             spender,
             amount,
-            expiration_ledger,
+            live_until_ledger: expiration_ledger,
         }
         .publish(&e);
     }
