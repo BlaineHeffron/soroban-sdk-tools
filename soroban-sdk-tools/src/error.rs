@@ -1,10 +1,11 @@
 //! Error handling utilities for Soroban contracts.
 //!
 //! Provides traits and helper types for composable error handling
-//! with the `#[scerr]` macro. Error codes are assigned sequentially
-//! starting at 1, with wrapped inner types flattened at their position
-//! via const-chaining. The `Aborted` variant always uses code 0, and
-//! the `UnknownError` sentinel always uses [`UNKNOWN_ERROR_CODE`].
+//! with the `#[scerr]` macro. Basic enums use sequential codes by default,
+//! but may preserve explicit numeric anchors. Wrapped inner types are
+//! flattened into a dense sequential space via const-chaining. The `Aborted`
+//! variant always uses code 0, and the `UnknownError` sentinel always uses
+//! [`UNKNOWN_ERROR_CODE`].
 
 // Re-export contracterror for users
 pub use soroban_sdk::contracterror;
@@ -30,9 +31,10 @@ pub trait ContractError: Sized {
 /// any off-by-one arithmetic. Types implementing this trait can be used as
 /// inner types in `#[transparent]` and `#[from_contract_client]` variants.
 ///
-/// For `#[scerr]` types, `to_seq()` returns `into_code() - 1` (since codes
-/// start at 1). For `contractimport!` types, the mapping is generated from
-/// the variant order regardless of native error codes.
+/// For `#[scerr]` and `contractimport!` types, this mapping is generated from
+/// variant order regardless of native error codes. This keeps composition dense
+/// even when a basic `#[scerr]` enum uses explicit discriminants such as
+/// `100`, `200`, or `400`.
 pub trait SequentialError: Sized {
     /// Convert this error to a 0-based sequential index in `[0, TOTAL_CODES)`.
     fn to_seq(&self) -> u32;
