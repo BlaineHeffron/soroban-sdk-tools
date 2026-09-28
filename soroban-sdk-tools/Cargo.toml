@@ -23,6 +23,8 @@ rand = { version = "0.8", optional = true }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 soroban-sdk-tools = { path = ".", features = ["testutils"] }
+soroban-spec = { workspace = true }
+sha2 = "0.10"
 
 [package.metadata.docs.rs]
 all-features = true

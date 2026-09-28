@@ -11,15 +11,12 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = { version = "25.1.0" }
-soroban-poseidon = { version = "25.0.0" }
-# Frozen on the last published soroban-sdk-tools built against soroban-sdk v25.
-# The local path crate is now on soroban-sdk v27, which is incompatible with
-# soroban-poseidon (no v27 release). See ../Cargo.toml `exclude`.
-soroban-sdk-tools = { version = "0.1.2" }
+soroban-sdk = { version = "28.0.0" }
+soroban-poseidon = { version = "28.0.0" }
+soroban-sdk-tools = { path = "../../../soroban-sdk-tools" }
 
 [workspace.package]
-rust-version = "1.89.0"
+rust-version = "1.91.0"
 
 [profile.release]
 opt-level = "z"
