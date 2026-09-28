@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.3...soroban-sdk-tools-v0.1.4) - 2026-09-28
+
+### Other
+
+- Upgrade soroban-sdk and related crates to v28 ([#42](https://github.com/BlaineHeffron/soroban-sdk-tools/pull/42))
+
 ## [0.1.3](https://github.com/BlaineHeffron/soroban-sdk-tools/compare/soroban-sdk-tools-v0.1.2...soroban-sdk-tools-v0.1.3) - 2026-06-26
 
 ### Added
